@@ -1,4 +1,5 @@
 #include <bits/stdc++.h>
+#include "../file_io.hpp"
 using namespace std;
 using namespace std::chrono;
 
@@ -7,25 +8,32 @@ using int64 = long long;
 struct Item {
     int64 weight;
     int64 value;
-    int index;
+    size_t index;
 };
 
-int main() {
+int main(int argc, char *argv[]) {
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
 
-    // --- Input parsing ---
-    int64 n, W;
-    if (!(cin >> n >> W)) return 0;
+    if (argc < 2) {
+        cerr << "Usage: " << argv[0] << " <input_file>" << endl;
+        return 1;
+    }
 
-    vector<int64> weights(n), values(n);
-    for (int64 i = 0; i < n; ++i) cin >> weights[i];
-    for (int64 i = 0; i < n; ++i) cin >> values[i];
+    KnapsackInstance instance;
+    if (!loadKnapsackInstance(argv[1], instance)) {
+        return 1;
+    }
+
+    size_t n = instance.n;
+    int64 W = instance.capacity;
+    const vector<int64> &weights = instance.weights;
+    const vector<int64> &values = instance.values;
 
     vector<Item> items(n);
     int64 wmax = 0;
-    for (int64 i = 0; i < n; ++i) {
-        items[i] = { weights[i], values[i], (int)i };
+    for (size_t i = 0; i < n; ++i) {
+        items[i] = { weights[i], values[i], i };
         wmax = max(wmax, weights[i]);
     }
 
@@ -45,11 +53,11 @@ int main() {
     // Parent tracking for reconstruction
     vector<vector<int64>> parent(n + 1, vector<int64>(W + 1, -1));
 
-    for (int64 i = 1; i <= n; ++i) {
+    for (size_t i = 1; i <= n; ++i) {
         double mu = (1.0 * i / n) * W;
-        double delta = sqrt(i * log(max(int64(2), n))) * wmax;
-        int64 low = max(int64(0), (int64)floor(mu - delta));
-        int64 high = min(W, (int64)ceil(mu + delta));
+        double delta = sqrt(i * log(max(size_t(2), n))) * wmax;
+        int64 low = max(int64(0), static_cast<int64>(floor(mu - delta)));
+        int64 high = min(W, static_cast<int64>(ceil(mu + delta)));
 
         fill(curr.begin() + low, curr.begin() + high + 1, NEG_INF);
 
@@ -82,9 +90,9 @@ int main() {
     }
 
     // Backtrack selected items
-    vector<int> chosen;
+    vector<size_t> chosen;
     int64 j = best_w;
-    for (int64 i = n; i >= 1; --i) {
+    for (size_t i = n; i >= 1; --i) {
         int64 pj = parent[i][j];
         if (pj == -1) continue;
         if (pj != j) { // item was taken
@@ -100,7 +108,7 @@ int main() {
     auto exec_time = duration_cast<microseconds>(end - start).count();
 
     // --- Rough memory usage estimation ---
-    size_t mem_bytes = sizeof(int64) * (2 * (W + 1) + (size_t)(n + 1) * (W + 1));
+    size_t mem_bytes = sizeof(int64) * (2 * static_cast<size_t>(W + 1) + (n + 1) * static_cast<size_t>(W + 1));
 
     // --- Output (strict format) ---
     cout << best_val << "\n";

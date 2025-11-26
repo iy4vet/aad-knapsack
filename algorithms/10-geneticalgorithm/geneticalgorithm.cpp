@@ -5,21 +5,22 @@
 #include <random>
 #include <numeric>
 #include <cstring>
+#include "../file_io.hpp"
 
 // Use int64 for large numbers
 using int64 = long long;
 
 // Struct to hold the results of the genetic algorithm.
 struct Result {
-    int64 maxValue;                 // The maximum value found for the knapsack.
-    std::vector<int> selectedItems; // The indices of the items selected to achieve the max value.
-    long long executionTime;        // Total execution time in microseconds.
-    size_t memoryUsed;              // Approximate memory usage in bytes.
+    int64 maxValue;                     // The maximum value found for the knapsack.
+    std::vector<size_t> selectedItems;  // The indices of the items selected to achieve the max value.
+    int64 executionTime;                // Total execution time in microseconds.
+    size_t memoryUsed;                  // Approximate memory usage in bytes.
 };
 
 // Struct to hold item properties for sorting.
 struct ItemProperty {
-    int id;
+    size_t id;
     double ratio;
 };
 
@@ -33,14 +34,18 @@ double REPRODUCTION_RATE = 0.15;            // Probability of direct reproductio
 unsigned int SEED = std::random_device()(); // Seed for random number generator.
 
 // Global variables for the knapsack problem instance.
-int64 KNAPSACK_CAPACITY;                // Maximum weight the knapsack can hold.
-std::vector<int64> ITEM_WEIGHTS;        // Weights of the items.
-std::vector<int64> ITEM_VALUES;         // Values of the items.
-size_t NUM_ITEMS;                       // Total number of items.
+int64 KNAPSACK_CAPACITY;                    // Maximum weight the knapsack can hold.
+const std::vector<int64> *g_ITEM_WEIGHTS;   // Pointer to item weights (set in main, no copy).
+const std::vector<int64> *g_ITEM_VALUES;    // Pointer to item values (set in main, no copy).
+size_t NUM_ITEMS;                           // Total number of items.
 
 // Global random number generator and helper vector.
 std::mt19937 rng;                       // Mersenne Twister random number generator, seeded in main.
 std::vector<size_t> included_indices;   // Helper vector for repair function.
+
+// Accessor helpers for cleaner code
+inline const std::vector<int64> &ITEM_WEIGHTS() { return *g_ITEM_WEIGHTS; }
+inline const std::vector<int64> &ITEM_VALUES() { return *g_ITEM_VALUES; }
 
 
 // Class to represent an individual in the population.
@@ -62,8 +67,8 @@ public:
         totalWeight = 0;
         for (size_t i = 0; i < NUM_ITEMS; ++i) {
             if (bits[i]) {
-                totalValue += ITEM_VALUES[i];
-                totalWeight += ITEM_WEIGHTS[i];
+                totalValue += ITEM_VALUES()[i];
+                totalWeight += ITEM_WEIGHTS()[i];
             }
         }
         // Invalidate fitness cache as metrics have been recalculated.
@@ -116,8 +121,8 @@ public:
 
             // Update individual's bit string and metrics.
             bits[item_index] = 0;
-            totalWeight -= ITEM_WEIGHTS[item_index];
-            totalValue -= ITEM_VALUES[item_index];
+            totalWeight -= ITEM_WEIGHTS()[item_index];
+            totalValue -= ITEM_VALUES()[item_index];
         }
         // Invalidate the fitness cache as the individual has been modified.
         fitnessValid = false;
@@ -137,13 +142,13 @@ public:
             if (probDist(rng) < MUTATION_RATE) {
                 // Flipping true-> false, removing item.
                 if (bits[i]) {
-                    totalValue -= ITEM_VALUES[i];
-                    totalWeight -= ITEM_WEIGHTS[i];
+                    totalValue -= ITEM_VALUES()[i];
+                    totalWeight -= ITEM_WEIGHTS()[i];
                 }
                 // Flipping false-> true, adding item.
                 else {
-                    totalValue += ITEM_VALUES[i];
-                    totalWeight += ITEM_WEIGHTS[i];
+                    totalValue += ITEM_VALUES()[i];
+                    totalWeight += ITEM_WEIGHTS()[i];
                 }
                 // Flip the bit and set mutated flag.
                 bits[i].flip();
@@ -349,8 +354,8 @@ Result solveKnapsackGenetic() {
         populationMemory += sizeof(Individual) + ((ind.bits.capacity() + 7) / 8);
     }
     size_t vectorMemory =
-        (sizeof(int64) * (ITEM_WEIGHTS.capacity() + ITEM_VALUES.capacity())) +
-        (sizeof(int) * result.selectedItems.capacity());
+        (sizeof(int64) * (ITEM_WEIGHTS().size() + ITEM_VALUES().size())) +
+        (sizeof(size_t) * result.selectedItems.capacity());
     result.memoryUsed = populationMemory + vectorMemory;
 
     return result;
@@ -358,7 +363,9 @@ Result solveKnapsackGenetic() {
 
 
 // Parses command-line arguments to override default hyperparameters.
-void parseArguments(int argc, char *argv[]) {
+// Returns the input filepath if provided, empty string otherwise.
+std::string parseArguments(int argc, char *argv[]) {
+    std::string filepath;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
 
@@ -381,7 +388,7 @@ void parseArguments(int argc, char *argv[]) {
             SEED = static_cast<unsigned int>(std::stoi(argv[++i]));
         }
         else if (arg == "--help" || arg == "-h") {
-            std::cerr << "Usage: " << argv[0] << " [options]" << "\n";
+            std::cerr << "Usage: " << argv[0] << " <input_file> [options]" << "\n";
             std::cerr << "Options:" << "\n";
             std::cerr << "  --population_size <int>      Population size" << "\n";
             std::cerr << "  --max_generations <int>      Max generations" << "\n";
@@ -391,7 +398,11 @@ void parseArguments(int argc, char *argv[]) {
             std::cerr << "  --seed <unsigned int>        Seed for random number generator" << "\n";
             exit(0);
         }
+        else if (arg[0] != '-' && filepath.empty()) {
+            filepath = arg;
+        }
     }
+    return filepath;
 }
 
 int main(int argc, char *argv[]) {
@@ -400,29 +411,35 @@ int main(int argc, char *argv[]) {
     std::cin.tie(nullptr);
 
     // Parse command-line arguments for hyperparameters.
-    parseArguments(argc, argv);
+    std::string filepath = parseArguments(argc, argv);
+
+    if (filepath.empty()) {
+        std::cerr << "Usage: " << argv[0] << " <input_file> [options]" << std::endl;
+        return 1;
+    }
 
     // Seed the random number generator.
     rng.seed(SEED);
 
-    // Read problem instance from standard input.
-    size_t n;
-    int64 capacity;
-    std::cin >> n >> capacity;
+    // Load problem instance from file.
+    KnapsackInstance instance;
+    if (!loadKnapsackInstance(filepath, instance)) {
+        return 1;
+    }
 
     // Set instance variables.
-    NUM_ITEMS = n;
-    KNAPSACK_CAPACITY = capacity;
+    NUM_ITEMS = instance.n;
+    KNAPSACK_CAPACITY = instance.capacity;
 
     // If population size is not provided, compute it using a heuristic.
     if (POPULATION_SIZE == 0) {
-        if (n < 100) {
+        if (NUM_ITEMS < 100) {
             POPULATION_SIZE = 20;
         }
-        else if (n < 1000) {
+        else if (NUM_ITEMS < 1000) {
             POPULATION_SIZE = 50;
         }
-        else if (n < 10000) {
+        else if (NUM_ITEMS < 10000) {
             POPULATION_SIZE = 100;
         }
         else {
@@ -432,13 +449,13 @@ int main(int argc, char *argv[]) {
 
     // If max generations is not provided, compute it using a heuristic.
     if (MAX_GENERATIONS == 0) {
-        if (n < 100) {
+        if (NUM_ITEMS < 100) {
             MAX_GENERATIONS = 200;
         }
-        else if (n < 1000) {
+        else if (NUM_ITEMS < 1000) {
             MAX_GENERATIONS = 100;
         }
-        else if (n < 10000) {
+        else if (NUM_ITEMS < 10000) {
             MAX_GENERATIONS = 50;
         }
         else {
@@ -446,21 +463,11 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Resize vectors to hold item data.
-    ITEM_WEIGHTS.resize(n);
-    ITEM_VALUES.resize(n);
+    // Set pointers to item data (no copy).
+    g_ITEM_WEIGHTS = &instance.weights;
+    g_ITEM_VALUES = &instance.values;
     // Resize helper vector for repair function.
     included_indices.resize(NUM_ITEMS);
-
-    // Read item weights.
-    for (size_t i = 0; i < n; i++) {
-        std::cin >> ITEM_WEIGHTS[i];
-    }
-
-    // Read item values.
-    for (size_t i = 0; i < NUM_ITEMS; ++i) {
-        std::cin >> ITEM_VALUES[i];
-    }
 
     // Solve the knapsack problem.
     Result result = solveKnapsackGenetic();

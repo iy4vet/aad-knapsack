@@ -1,6 +1,7 @@
 # ignore datasets
 /data/*.csv
 /data/gh_*/
+/data/knapsack_*/
 # ignore simulation data and archives
 /simulation/archive/
 /simulation/logs/

@@ -1,10 +1,22 @@
 #!/usr/bin/env python3
 """
-Script to process knapsack problem instances and generate CSV datasets.
+Script to process knapsack problem instances and generate individual text files.
 Processes all testcases from data/gh_knapsack-01-instances directory.
+
+Output format:
+    /data/knapsack_hard2/<category>/<testid>.txt
+    where category is H2pisingerlarge, H2pisingerlowdim, or H2xiang
+    and testid increments from 1 within each category
+
+Text file format:
+    Line 1: <n> <capacity> <max_weight> <min_weight> <optimum_value>
+            (optimum_value may be blank if unknown)
+    Line 2: <optimal_pick_1> <optimal_pick_2> ...
+            (may be blank if unknown)
+    Lines 3+: <weight_i> <value_i>
 """
 
-import csv
+import shutil
 from pathlib import Path
 
 
@@ -61,14 +73,52 @@ def parse_optimum_file(optimum_path):
         return None
 
 
+def write_instance_file(filepath, n, weights, prices, capacity, best_picks, best_price):
+    """Write a single instance to a text file in the new format."""
+    max_weight = max(weights) if weights else 0
+    min_weight = min(weights) if weights else 0
+
+    with open(filepath, "w") as f:
+        # Line 1: n capacity max_weight min_weight [optimum_value]
+        if best_price is not None and best_price != "":
+            f.write(f"{n} {capacity} {max_weight} {min_weight} {best_price}\n")
+        else:
+            f.write(f"{n} {capacity} {max_weight} {min_weight}\n")
+
+        # Line 2: optimal picks (space-separated)
+        if best_picks:
+            f.write(" ".join(map(str, best_picks)) + "\n")
+        else:
+            f.write("\n")
+
+        # Lines 3+: weight value pairs
+        for i in range(n):
+            f.write(f"{weights[i]} {prices[i]}\n")
+
+
 def main():
     # Setup paths
     base_dir = Path(__file__).parent
     instances_dir = base_dir / "gh_knapsack-01-instances"
-    output_file = base_dir / "knapsack_hard2_dataset.csv"
+    output_dir = base_dir / "knapsack_hard2"
 
-    # List to store all data
-    all_data = []
+    # Create output directory with category subdirectories
+    if output_dir.exists():
+        print(f"Removing existing directory: {output_dir}")
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "H2pisingerlarge").mkdir(parents=True, exist_ok=True)
+    (output_dir / "H2pisingerlowdim").mkdir(parents=True, exist_ok=True)
+    (output_dir / "H2xiang").mkdir(parents=True, exist_ok=True)
+    print(f"Created output directory: {output_dir}")
+
+    # Track test_id per category
+    large_scale_test_id = 0
+    low_dim_test_id = 0
+    xiang_test_id = 0
+    large_scale_count = 0
+    low_dim_count = 0
+    xiang_count = 0
 
     # Process Pisinger instances
     print("Processing Pisinger instances...")
@@ -95,17 +145,12 @@ def main():
             optimum_file = large_scale_optimum_dir / instance_file.name
             best_price = parse_optimum_file(optimum_file)
 
-            all_data.append(
-                {
-                    "category": "H2pisingerlarge",
-                    "n": n,
-                    "weights": str(weights),
-                    "prices": str(prices),
-                    "capacity": capacity,
-                    "best_picks": str(best_picks) if best_picks else "",
-                    "best_price": best_price if best_price is not None else "",
-                }
+            large_scale_test_id += 1
+            filepath = output_dir / "H2pisingerlarge" / f"{large_scale_test_id}.txt"
+            write_instance_file(
+                filepath, n, weights, prices, capacity, best_picks, best_price
             )
+            large_scale_count += 1
 
     # Process low-dimensional instances
     low_dim_dir = pisinger_dir / "low-dimensional"
@@ -123,20 +168,11 @@ def main():
             optimum_file = low_dim_optimum_dir / instance_file.name
             best_price = parse_optimum_file(optimum_file)
 
-            all_data.append(
-                {
-                    "category": "H2pisingerlowdim",
-                    "n": n,
-                    "weights": str(weights),
-                    "prices": str(prices),
-                    "capacity": capacity,
-                    "best_picks": "",  # Solution not available for low-dimensional
-                    "best_price": best_price if best_price is not None else "",
-                }
-            )
+            low_dim_test_id += 1
+            filepath = output_dir / "H2pisingerlowdim" / f"{low_dim_test_id}.txt"
+            write_instance_file(filepath, n, weights, prices, capacity, [], best_price)
+            low_dim_count += 1
 
-    large_scale_count = len([d for d in all_data if d["category"] == "H2pisingerlarge"])
-    low_dim_count = len([d for d in all_data if d["category"] == "H2pisingerlowdim"])
     print(
         f"Processed {large_scale_count} large-scale + {low_dim_count} low-dimensional Pisinger instances"
     )
@@ -153,49 +189,27 @@ def main():
                 instance_file, has_solution=False
             )
 
-            all_data.append(
-                {
-                    "category": "H2xiang",
-                    "n": n,
-                    "weights": str(weights),
-                    "prices": str(prices),
-                    "capacity": capacity,
-                    "best_picks": "",  # Solution not available
-                    "best_price": "",  # Optimum not available for Xiang instances
-                }
-            )
+            xiang_test_id += 1
+            filepath = output_dir / "H2xiang" / f"{xiang_test_id}.txt"
+            write_instance_file(filepath, n, weights, prices, capacity, [], None)
+            xiang_count += 1
 
-    print(
-        f"Processed {len([d for d in all_data if d['category'] == 'H2xiang'])} Xiang instances"
-    )
+    print(f"Processed {xiang_count} Xiang instances")
 
-    # Sort by category and n
-    all_data.sort(key=lambda x: (x["category"], x["n"]))
-
-    # Write all data to CSV
-    print(f"\nWriting {output_file}...")
-    with open(output_file, "w", newline="") as f:
-        fieldnames = [
-            "category",
-            "n",
-            "weights",
-            "prices",
-            "capacity",
-            "best_picks",
-            "best_price",
-        ]
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(all_data)
-
-    large_scale_count = len([d for d in all_data if d["category"] == "H2pisingerlarge"])
-    low_dim_count = len([d for d in all_data if d["category"] == "H2pisingerlowdim"])
-    xiang_count = len([d for d in all_data if d["category"] == "H2xiang"])
+    # Write metadata file
+    total_count = large_scale_count + low_dim_count + xiang_count
+    metadata_path = output_dir / "metadata.txt"
+    with open(metadata_path, "w") as f:
+        f.write("source=gh_knapsack-01-instances\n")
+        f.write(f"total={total_count}\n")
+        f.write(f"H2pisingerlarge={large_scale_count}\n")
+        f.write(f"H2pisingerlowdim={low_dim_count}\n")
+        f.write(f"H2xiang={xiang_count}\n")
 
     print("\nDone!")
-    print("Generated file:")
+    print(f"Generated {total_count} files in: {output_dir}")
     print(
-        f"  - {output_file} ({large_scale_count} large-scale + {low_dim_count} low-dimensional + {xiang_count} Xiang instances)"
+        f"  H2pisingerlarge/{large_scale_count}, H2pisingerlowdim/{low_dim_count}, H2xiang/{xiang_count}"
     )
 
 

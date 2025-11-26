@@ -2,8 +2,7 @@
  * Knapsack "Random" Problem Instance Generator (C++ Worker)
  *
  * This program generates a single, random 0/1 knapsack problem instance
- * based on the algorithm from generator.cpp and appends it as a single CSV
- * row to a specified file.
+ * based on the algorithm from generator.cpp and writes it to a specified text file.
  *
  * The instance uses a class-based structure where items are divided into
  * multiple classes with weights/profits centered around fractions of capacity
@@ -13,16 +12,14 @@
  * g++ -O3 -std=c++17 -o generate_random_instance generate_random_instance.cpp
  *
  * USAGE (called by Python):
- * ./generate_random_instance <filepath> <category> <n> <capacity> <seed>
+ * ./generate_random_instance <filepath> <n> <capacity> <seed>
  *
- * EXAMPLE:
- * ./generate_random_instance data.csv Small 1000 1000000 12345
+ * OUTPUT FILE FORMAT:
+ * Line 1: <n> <capacity> <max_weight> <min_weight> (optimum unknown, left blank)
+ * Line 2: (empty - optimal picks unknown)
+ * Lines 3+: <weight_i> <value_i>
  *
- * CSV ROW FORMAT:
- * category, n, "[weights,...]", "[profits,...]", capacity, seed
- *
- * Note: This generator does NOT compute the optimal solution, so best_picks
- * and best_price fields are omitted from the output.
+ * Note: This generator does NOT compute the optimal solution.
  */
 
 #include <iostream>
@@ -30,54 +27,23 @@
 #include <vector>
 #include <string>
 #include <random>
-#include <sstream>
 #include <algorithm>
+#include <limits>
 
  // Use 64-bit integers for weights, profits, and capacity
 using int64 = long long;
 
-/**
- * @brief Helper function to JSON-serialize a vector of numbers.
- */
-template<typename T>
-std::string vec_to_json(const std::vector<T> &vec) {
-    if (vec.empty()) {
-        return "[]";
-    }
-    std::stringstream ss;
-    ss << "[" << vec[0];
-    for (size_t i = 1; i < vec.size(); ++i) {
-        ss << ", " << vec[i];
-    }
-    ss << "]";
-    return ss.str();
-}
-
-/**
- * @brief Helper function to quote a string for a CSV field.
- */
-std::string quote(const std::string &s) {
-    std::string escaped = s;
-    size_t pos = 0;
-    while ((pos = escaped.find('"', pos)) != std::string::npos) {
-        escaped.insert(pos, 1, '"');
-        pos += 2;
-    }
-    return "\"" + escaped + "\"";
-}
-
 int main(int argc, char *argv[]) {
     // --- 1. Parse Command-Line Arguments ---
-    if (argc != 6) {
-        std::cerr << "Error: Expected 5 arguments: <filepath> <category> <n> <capacity> <seed>\n";
+    if (argc != 5) {
+        std::cerr << "Error: Expected 4 arguments: <filepath> <n> <capacity> <seed>\n";
         return 1;
     }
 
     std::string filepath = argv[1];
-    std::string category = "R" + std::string(argv[2]);
-    int64 n = std::stoll(argv[3]);
-    int64 capacity = std::stoll(argv[4]);
-    int seed = std::stoi(argv[5]);
+    int64 n = std::stoll(argv[2]);
+    int64 capacity = std::stoll(argv[3]);
+    int seed = std::stoi(argv[4]);
 
     // --- 2. Initialize RNG ---
     std::mt19937 rng(seed);
@@ -128,22 +94,31 @@ int main(int argc, char *argv[]) {
         profits[i] = num2;
     }
 
-    // --- 5. Format Output Row ---
-    std::ofstream outfile;
-    outfile.open(filepath, std::ios_base::app);
+    // --- 5. Calculate max/min weights ---
+    int64 maxWeight = 0;
+    int64 minWeight = std::numeric_limits<int64>::max();
+    for (int64 i = 0; i < n; ++i) {
+        maxWeight = std::max(maxWeight, weights[i]);
+        minWeight = std::min(minWeight, weights[i]);
+    }
 
+    // --- 6. Write to Output File ---
+    std::ofstream outfile(filepath);
     if (!outfile.is_open()) {
         std::cerr << "Error: Could not open output file: " << filepath << "\n";
         return 2;
     }
 
-    // Omit best_picks and best_price since optimal solution is unknown
-    outfile << std::nounitbuf << quote(category) << ","
-        << n << ","
-        << quote(vec_to_json(weights)) << ","
-        << quote(vec_to_json(profits)) << ","
-        << capacity << ","
-        << seed << "\n";
+    // Line 1: n capacity max_weight min_weight (optimum unknown, left blank)
+    outfile << n << " " << capacity << " " << maxWeight << " " << minWeight << "\n";
+
+    // Line 2: optimal picks (empty - unknown)
+    outfile << "\n";
+
+    // Lines 3+: weight value pairs
+    for (int64 i = 0; i < n; ++i) {
+        outfile << weights[i] << " " << profits[i] << "\n";
+    }
 
     outfile.close();
     return 0;

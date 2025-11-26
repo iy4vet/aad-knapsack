@@ -1,10 +1,23 @@
 #!/usr/bin/env python3
 """
-Script to process knapsack problem instances and generate CSV datasets.
+Script to process knapsack problem instances and generate individual text files.
 Processes all testcases from data/gh_knapsackProblemInstances/problemInstances directory.
+
+Output format:
+    /data/knapsack_hard1/<category>/<testid>.txt
+    where category is H1known or H1unknown
+    and testid increments from 1 within each category
+
+Text file format:
+    Line 1: <n> <capacity> <max_weight> <min_weight> <optimum_value>
+            (optimum_value may be blank if unknown)
+    Line 2: <optimal_pick_1> <optimal_pick_2> ...
+            (may be blank if unknown)
+    Lines 3+: <weight_i> <value_i>
 """
 
 import csv
+import shutil
 from pathlib import Path
 
 
@@ -91,25 +104,60 @@ def load_optima(optima_path):
     return optima
 
 
+def write_instance_file(filepath, n, weights, prices, capacity, best_picks, best_price):
+    """Write a single instance to a text file in the new format."""
+    max_weight = max(weights) if weights else 0
+    min_weight = min(weights) if weights else 0
+
+    with open(filepath, "w") as f:
+        # Line 1: n capacity max_weight min_weight [optimum_value]
+        if best_price is not None and best_price != "":
+            f.write(f"{n} {capacity} {max_weight} {min_weight} {best_price}\n")
+        else:
+            f.write(f"{n} {capacity} {max_weight} {min_weight}\n")
+
+        # Line 2: optimal picks (space-separated)
+        if best_picks:
+            f.write(" ".join(map(str, best_picks)) + "\n")
+        else:
+            f.write("\n")
+
+        # Lines 3+: weight value pairs
+        for i in range(n):
+            f.write(f"{weights[i]} {prices[i]}\n")
+
+
 def main():
     # Setup paths
     base_dir = Path(__file__).parent
     instances_dir = base_dir / "gh_knapsackProblemInstances" / "problemInstances"
     optima_path = base_dir / "gh_knapsackProblemInstances" / "optima.csv"
 
-    output_file = base_dir / "knapsack_hard1_dataset.csv"
+    output_dir = base_dir / "knapsack_hard1"
 
     # Load optima
     print("Loading optima.csv...")
     optima = load_optima(optima_path)
     print(f"Loaded {len(optima)} entries from optima.csv")
 
-    # List to store all data
-    all_data = []
+    # Create output directory with category subdirectories
+    if output_dir.exists():
+        print(f"Removing existing directory: {output_dir}")
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "H1known").mkdir(parents=True, exist_ok=True)
+    (output_dir / "H1unknown").mkdir(parents=True, exist_ok=True)
+    print(f"Created output directory: {output_dir}")
 
     # Process all subdirectories
     print("\nProcessing problem instances...")
     instance_folders = sorted([d for d in instances_dir.iterdir() if d.is_dir()])
+
+    # Track test_id per category
+    known_test_id = 0
+    unknown_test_id = 0
+    known_count = 0
+    unknown_count = 0
 
     for idx, folder in enumerate(instance_folders, 1):
         folder_name = folder.name
@@ -136,65 +184,43 @@ def main():
             if best_price is not None and best_price == optimum:
                 # Find indices of selected items
                 best_picks = find_item_indices(weights, prices, selected_items)
-
-                all_data.append(
-                    {
-                        "category": "H1known",
-                        "n": n,
-                        "weights": str(weights),
-                        "prices": str(prices),
-                        "capacity": capacity,
-                        "best_picks": str(best_picks),
-                        "best_price": best_price,
-                    }
+                known_test_id += 1
+                filepath = output_dir / "H1known" / f"{known_test_id}.txt"
+                write_instance_file(
+                    filepath, n, weights, prices, capacity, best_picks, best_price
                 )
+                known_count += 1
             else:
                 print(
                     f"Warning: {folder_name} - could not parse output or mismatch with optima"
                 )
+                unknown_test_id += 1
+                filepath = output_dir / "H1unknown" / f"{unknown_test_id}.txt"
+                write_instance_file(filepath, n, weights, prices, capacity, [], None)
+                unknown_count += 1
         else:
             # Optimum not known
-            all_data.append(
-                {
-                    "category": "H1unknown",
-                    "n": n,
-                    "weights": str(weights),
-                    "prices": str(prices),
-                    "capacity": capacity,
-                    "best_picks": "",
-                    "best_price": "",
-                }
-            )
+            unknown_test_id += 1
+            filepath = output_dir / "H1unknown" / f"{unknown_test_id}.txt"
+            write_instance_file(filepath, n, weights, prices, capacity, [], None)
+            unknown_count += 1
+
+    # Write metadata file
+    total_count = known_count + unknown_count
+    metadata_path = output_dir / "metadata.txt"
+    with open(metadata_path, "w") as f:
+        f.write("source=gh_knapsackProblemInstances\n")
+        f.write(f"total={total_count}\n")
+        f.write(f"H1known={known_count}\n")
+        f.write(f"H1unknown={unknown_count}\n")
 
     print(f"\nProcessed {len(instance_folders)} instances")
-    known_count = sum(1 for row in all_data if row["category"] == "H1known")
-    unknown_count = sum(1 for row in all_data if row["category"] == "H1unknown")
-    print(f"Known optima: {known_count}")
-    print(f"Unknown optima: {unknown_count}")
-
-    all_data.sort(key=lambda x: (x["category"], x["n"]))
-
-    # Write all data to CSV
-    print(f"\nWriting {output_file}...")
-    with open(output_file, "w", newline="") as f:
-        fieldnames = [
-            "category",
-            "n",
-            "weights",
-            "prices",
-            "capacity",
-            "best_picks",
-            "best_price",
-        ]
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(all_data)
+    print(f"H1known: {known_count}")
+    print(f"H1unknown: {unknown_count}")
 
     print("\nDone!")
-    print("Generated file:")
-    print(
-        f"  - {output_file} ({known_count} known + {unknown_count} unknown instances)"
-    )
+    print(f"Generated {total_count} files in: {output_dir}")
+    print(f"  H1known/{known_count} files, H1unknown/{unknown_count} files")
 
 
 if __name__ == "__main__":

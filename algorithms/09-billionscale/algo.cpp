@@ -11,13 +11,14 @@
 //   g++ -O3 -std=c++17 -fopenmp -o dual_knapsack dual_knapsack.cpp
 //
 // Notes:
-// - Reads from stdin: "n W" then a line of n weights then a line of n profits.
+// - Reads from file: n capacity on line 1, optimal picks on line 2 (may be empty), then weight value pairs.
 // - Uses multiplicative dual update with optional OpenMP parallelization.
 // - Performs a postprocessing pass to ensure final solution is feasible.
 
 #include <bits/stdc++.h>
 #include <sys/resource.h>
 #include <sys/time.h>
+#include "../file_io.hpp"
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -40,29 +41,30 @@ static int64 get_peak_memory_bytes() {
 #endif
 }
 
-int main() {
+int main(int argc, char *argv[]) {
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
 
-    int64 n;
-    int64 W;
-    if (!(cin >> n >> W)) {
-        cerr << "Input error: expected n W\n";
-        return 2;
+    if (argc < 2) {
+        cerr << "Usage: " << argv[0] << " <input_file>" << endl;
+        return 1;
     }
-    if (n <= 0) {
+
+    KnapsackInstance instance;
+    if (!loadKnapsackInstance(argv[1], instance)) {
+        return 1;
+    }
+
+    size_t n = instance.n;
+    int64 W = instance.capacity;
+    if (n == 0) {
         // print empty solution
         cout << 0 << "\n" << 0 << "\n\n" << 0 << "\n" << 0 << "\n";
         return 0;
     }
 
-    vector<int64> weights(n), profits(n);
-    for (int64 i = 0; i < n; ++i) {
-        cin >> weights[i];
-    }
-    for (int64 i = 0; i < n; ++i) {
-        cin >> profits[i];
-    }
+    const vector<int64> &weights = instance.weights;
+    const vector<int64> &profits = instance.values;
 
     // Hyperparameters (tuneable inside code or by editing)
     // OPTIMIZATION: Increased learning rate for faster convergence on hard instances
@@ -77,7 +79,7 @@ int main() {
     // This works better for hard instances with similar ratios
     vector<double> ratios;
     ratios.reserve(n);
-    for (int i = 0; i < n; ++i) {
+    for (size_t i = 0; i < n; ++i) {
         if (weights[i] > 0) {
             ratios.push_back(static_cast<double>(profits[i]) / static_cast<double>(weights[i]));
         }
@@ -86,7 +88,8 @@ int main() {
         // Use median ratio instead of mean for better robustness
         sort(ratios.begin(), ratios.end());
         lambda = ratios[ratios.size() / 2];
-    } else {
+    }
+    else {
         lambda = 0.0;
     }
 
@@ -115,7 +118,7 @@ int main() {
             int64 wsum = 0;
             int64 vsum = 0;
 #pragma omp for schedule(static)
-            for (int64 i = 0; i < n; ++i) {
+            for (size_t i = 0; i < n; ++i) {
                 double thr = lambda * static_cast<double>(weights[i]);
                 if (static_cast<double>(profits[i]) > thr) {
                     x[i] = 1;
@@ -136,7 +139,7 @@ int main() {
 #else
         local_weight = 0;
         local_value = 0;
-        for (int64 i = 0; i < n; ++i) {
+        for (size_t i = 0; i < n; ++i) {
             double thr = lambda * static_cast<double>(weights[i]);
             if (static_cast<double>(profits[i]) > thr) {
                 x[i] = 1;
@@ -168,9 +171,9 @@ int main() {
     // Post-processing: if overweight, drop selected items with smallest profit/weight ratio
     total_weight = 0;
     total_value = 0;
-    vector<int64> selected_indices;
+    vector<size_t> selected_indices;
     selected_indices.reserve(n);
-    for (int64 i = 0; i < n; ++i) if (x[i]) {
+    for (size_t i = 0; i < n; ++i) if (x[i]) {
         total_weight += weights[i];
         total_value += profits[i];
         selected_indices.push_back(i);
@@ -179,41 +182,41 @@ int main() {
     // OPTIMIZATION: Improved postprocessing for better solution quality on hard instances
     if (total_weight > W) {
         // Strategy: Remove items with smallest profit first (preserves high-value items)
-        vector<tuple<int64, int64, int64>> sel; // (profit, index, weight)
+        vector<tuple<int64, size_t, int64>> sel; // (profit, index, weight)
         sel.reserve(selected_indices.size());
-        for (int64 idx : selected_indices) {
+        for (size_t idx : selected_indices) {
             sel.emplace_back(profits[idx], idx, weights[idx]);
         }
         // sort by profit ascending (remove smallest profit first)
         sort(sel.begin(), sel.end());
-        
+
         // remove items until feasible
         for (auto &t : sel) {
             if (total_weight <= W) break;
-            int64 idx = get<1>(t);
+            size_t idx = get<1>(t);
             total_weight -= get<2>(t);
             total_value -= get<0>(t);
             x[idx] = 0;
         }
     }
-    
+
     // OPTIMIZATION: Greedy improvement pass - try adding back items that fit
     if (total_weight <= W) {
-        vector<tuple<double, int64, int64, int64>> available; // (ratio, index, weight, profit)
-        for (int64 i = 0; i < n; ++i) {
+        vector<tuple<double, size_t, int64, int64>> available; // (ratio, index, weight, profit)
+        for (size_t i = 0; i < n; ++i) {
             if (!x[i] && weights[i] > 0 && total_weight + weights[i] <= W) {
                 double ratio = static_cast<double>(profits[i]) / static_cast<double>(weights[i]);
                 available.emplace_back(ratio, i, weights[i], profits[i]);
             }
         }
         // sort by ratio descending (best items first)
-        sort(available.begin(), available.end(), [](const auto &a, const auto &b){
+        sort(available.begin(), available.end(), [](const auto &a, const auto &b) {
             return get<0>(a) > get<0>(b);
-        });
-        
+            });
+
         // add items that fit
         for (auto &t : available) {
-            int64 idx = get<1>(t);
+            size_t idx = get<1>(t);
             int64 w = get<2>(t);
             int64 p = get<3>(t);
             if (total_weight + w <= W) {
@@ -226,7 +229,7 @@ int main() {
 
     // finalize selected list
     selected_indices.clear();
-    for (int64 i = 0; i < n; ++i) if (x[i]) selected_indices.push_back(i);
+    for (size_t i = 0; i < n; ++i) if (x[i]) selected_indices.push_back(i);
 
     // Timing end
     auto t1 = chrono::high_resolution_clock::now();

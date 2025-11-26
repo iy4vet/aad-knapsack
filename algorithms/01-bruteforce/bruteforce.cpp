@@ -4,6 +4,7 @@
 #include <chrono>
 #include <numeric> // For iota, though not strictly needed here
 #include <utility> // For std::pair
+#include "../file_io.hpp"
 
 using namespace std;
 using int64 = long long;
@@ -94,24 +95,20 @@ int main(int argc, char *argv[]) {
     std::ios::sync_with_stdio(false);
     std::cin.tie(nullptr);
 
-    // Read input from stdin
-    int n;
-    int64 capacity;
-    cin >> n >> capacity;
-
-    vector<int64> weights(n);
-    vector<int64> values(n);
-
-    for (int i = 0; i < n; i++) {
-        cin >> weights[i];
+    // Check command line arguments
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <input_file>" << std::endl;
+        return 1;
     }
 
-    for (int i = 0; i < n; i++) {
-        cin >> values[i];
+    // Load instance from file
+    KnapsackInstance instance;
+    if (!loadKnapsackInstance(argv[1], instance)) {
+        return 1;
     }
 
     // Solve the knapsack problem
-    Result result = solveKnapsackBruteForce(capacity, weights, values);
+    Result result = solveKnapsackBruteForce(instance.capacity, instance.weights, instance.values);
 
     // Output results
     cout << result.maxValue << endl;

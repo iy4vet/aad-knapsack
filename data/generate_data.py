@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Generate knapsack problems dataset using a C++ worker.
 
 This script orchestrates the generation of a dataset of 0/1 knapsack problems.
@@ -17,21 +18,32 @@ No pre-computed optimal solution.
 This script's roles:
 1.  Parse command-line arguments (mode, total, level, seed, etc.).
 2.  Compile the appropriate C++ worker program.
-3.  Delete any old CSV and write a new header.
+3.  Create output directory structure.
 4.  Loop `total` times, calling the C++ worker for each problem.
 
 The C++ worker's role:
 1.  Receive params from this script.
-        easy: category, n, seed
-        trap: category, n, capacity, seed
-        random: category, n, capacity, seed
+        easy: filepath, n, seed
+        trap: filepath, n, capacity, seed
+        random: filepath, n, capacity, seed
 2.  Generate a single instance.
-3.  Append that single instance as a row to the CSV.
+3.  Write that single instance to a text file.
+
+Output format:
+    /data/<datasetname>/<category>/<testid>.txt
+    where category is Tiny/Small/Medium/Large/Massive
+    and testid increments from 1 within each category
+
+Text file format:
+    Line 1: <n> <capacity> <max_weight> <min_weight> <optimum_value>
+            (optimum_value may be blank if unknown)
+    Line 2: <optimal_pick_1> <optimal_pick_2> ...
+            (may be blank if unknown)
+    Lines 3+: <weight_i> <value_i>
 
 Command-line arguments (all provided as --arg value):
     --mode    : problem mode - "easy", "trap", or "random" (default: easy)
-    --out     : output CSV path (default: knapsack_easy_dataset.csv, knapsack_trap_dataset.csv,
-                    or knapsack_random_dataset.csv resp.)
+    --name    : dataset name (default: knapsack_easy, knapsack_trap, or knapsack_random)
     --total   : total number of problems to generate (default: 100)
     --level   : maximum difficulty level to include (default: 2)
                     0 => Tiny only
@@ -51,6 +63,7 @@ import random
 import gc
 import subprocess
 import sys
+import shutil
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -177,9 +190,9 @@ def main():
         help="Problem mode: 'easy', 'trap', or 'random' (default: easy)",
     )
     parser.add_argument(
-        "--out",
+        "--name",
         default=None,
-        help="Output CSV path (default: data/knapsack_easy_dataset.csv, data/knapsack_trap_dataset.csv, or data/knapsack_random_dataset.csv)",
+        help="Dataset name (default: knapsack_easy, knapsack_trap, or knapsack_random)",
     )
     parser.add_argument(
         "--total",
@@ -197,20 +210,20 @@ def main():
     parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()
 
-    # Set default output path based on mode if not specified
-    if args.out is None:
-        script_dir = Path(__file__).parent
+    # Set default dataset name based on mode if not specified
+    if args.name is None:
         if args.mode == "easy":
-            args.out = script_dir / "knapsack_easy_dataset.csv"
+            args.name = "knapsack_easy"
         elif args.mode == "trap":
-            args.out = script_dir / "knapsack_trap_dataset.csv"
+            args.name = "knapsack_trap"
         elif args.mode == "random":
-            args.out = script_dir / "knapsack_random_dataset.csv"
+            args.name = "knapsack_random"
         else:
             print(f"Error: Unknown mode '{args.mode}'", file=sys.stderr)
             sys.exit(1)
-    else:
-        args.out = Path(args.out)
+
+    script_dir = Path(__file__).parent
+    output_dir = script_dir / args.name
 
     # --- 1. Compile C++ Worker ---
     if args.mode == "easy":
@@ -229,7 +242,6 @@ def main():
     if sys.platform == "win32":
         cpp_exe_file += ".exe"
 
-    script_dir = Path(__file__).parent
     cpp_src_path = script_dir / cpp_src_file
     if not cpp_src_path.exists():
         print(
@@ -250,71 +262,78 @@ def main():
         print("No problems to generate. Exiting.")
         return
 
-    # --- 3. Initialise CSV File and Header ---
-    # Random mode has different fields (no best_picks or best_price)
-    if args.mode == "random":
-        fields = [
-            "category",
-            "n",
-            "weights",
-            "prices",
-            "capacity",
-            "seed",
-        ]
-    else:
-        fields = [
-            "category",
-            "n",
-            "weights",
-            "prices",
-            "capacity",
-            "best_picks",
-            "best_price",
-            "seed",
-        ]
+    # --- 3. Create Output Directory ---
+    # Remove existing directory if it exists
+    if output_dir.exists():
+        print(f"Removing existing directory: {output_dir}")
+        shutil.rmtree(output_dir)
 
-    # Ensure output directory exists
-    args.out.parent.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Created output directory: {output_dir}")
 
-    try:
-        if args.out.exists():
-            args.out.unlink()
+    # --- 4. Create category subdirectories and count per category ---
+    # Prefix categories with mode letter: E=easy, T=trap, R=random
+    mode_prefix = {"easy": "E", "trap": "T", "random": "R"}[args.mode]
 
-        with open(args.out, "w", newline="", encoding="utf-8") as f:
-            f.write(",".join(fields) + "\n")
-    except IOError as e:
-        print(f"Error: Could not write to output file {args.out}. {e}", file=sys.stderr)
-        sys.exit(1)
-
-    # --- 4. Main Generation Loop (Call C++) ---
-    mode_str = args.mode
-    print(f"Generating {len(specs)} {mode_str} problem instances into {args.out}...")
-    for i, spec in enumerate(specs):
+    category_counts = {}
+    for spec in specs:
         cat = spec["category"]
+        prefixed_cat = f"{mode_prefix}{cat}"
+        spec["prefixed_category"] = prefixed_cat  # Store for later use
+        category_counts[prefixed_cat] = category_counts.get(prefixed_cat, 0) + 1
+
+    for cat in category_counts:
+        (output_dir / cat).mkdir(parents=True, exist_ok=True)
+
+    # Track test_id per category
+    category_test_ids = {cat: 0 for cat in category_counts}
+
+    # --- 5. Write metadata file ---
+    metadata_path = output_dir / "metadata.txt"
+    with open(metadata_path, "w") as f:
+        f.write(f"mode={args.mode}\n")
+        f.write(f"total={len(specs)}\n")
+        f.write(f"level={args.level}\n")
+        f.write(f"seed={args.seed}\n")
+        for cat, count in sorted(category_counts.items()):
+            f.write(f"{cat}={count}\n")
+
+    # --- 6. Main Generation Loop (Call C++) ---
+    mode_str = args.mode
+    print(f"Generating {len(specs)} {mode_str} problem instances into {output_dir}...")
+
+    for i, spec in enumerate(specs):
+        cat = spec["prefixed_category"]  # Use prefixed category
         n = spec["n"]
         seed = rng.randint(0, 2**31 - 1)
+
+        # Test ID increments per category
+        category_test_ids[cat] += 1
+        test_id = category_test_ids[cat]
+        filepath = output_dir / cat / f"{test_id}.txt"
 
         # Build command based on mode
         if args.mode == "easy":
             # Easy mode does not require capacity
-            cmd = [str(cpp_exe_path), str(args.out), cat, str(n), str(seed)]
+            cmd = [str(cpp_exe_path), str(filepath), str(n), str(seed)]
         elif args.mode == "trap" or args.mode == "random":
             capacity = 0
             # Trap and random modes require capacity parameter
-            if cat == "Tiny":
+            # Use original category (without prefix) for capacity lookup
+            orig_cat = spec["category"]
+            if orig_cat == "Tiny":
                 capacity = 100_000
-            elif cat == "Small":
+            elif orig_cat == "Small":
                 capacity = 1_000_000
-            elif cat == "Medium":
+            elif orig_cat == "Medium":
                 capacity = 10_000_000
-            elif cat == "Large":
+            elif orig_cat == "Large":
                 capacity = 100_000_000
-            elif cat == "Massive":
+            elif orig_cat == "Massive":
                 capacity = 1_000_000_000
             cmd = [
                 str(cpp_exe_path),
-                str(args.out),
-                cat,
+                str(filepath),
                 str(n),
                 str(capacity),
                 str(seed),
@@ -324,11 +343,10 @@ def main():
             sys.exit(1)
 
         try:
-            # We don't need to capture output, just check for errors
             subprocess.run(cmd, check=True, text=True, capture_output=True)
         except subprocess.CalledProcessError as e:
             print(
-                f"\nError: C++ worker failed for instance {i + 1} (n={n}, seed={seed})",
+                f"\nError: C++ worker failed for instance {test_id} (n={n}, seed={seed})",
                 file=sys.stderr,
             )
             print("STDERR:", file=sys.stderr)
@@ -338,7 +356,7 @@ def main():
 
         # Simple progress bar
         print(
-            f"  ... Wrote problem {i + 1}/{len(specs)} (n={n}, cat={cat})",
+            f"  ... Wrote problem {i + 1}/{len(specs)} ({cat}/{test_id}, n={n})",
             end="\r",
             flush=True,
         )
@@ -348,8 +366,10 @@ def main():
             gc.collect()
 
     print(
-        f"\nSuccessfully wrote {len(specs)} problems to {args.out} (mode={args.mode}, seed={args.seed}, level={args.level})"
+        f"\nSuccessfully wrote {len(specs)} problems to {output_dir} (mode={args.mode}, seed={args.seed}, level={args.level})"
     )
+    for cat, count in sorted(category_counts.items()):
+        print(f"  {cat}: {count} instances")
 
 
 if __name__ == "__main__":

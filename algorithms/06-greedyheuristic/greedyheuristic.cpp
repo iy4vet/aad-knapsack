@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <numeric>
+#include "../file_io.hpp"
 
 using namespace std;
 
@@ -12,15 +13,15 @@ using int64 = long long;
 struct Item {
     int64 weight;
     int64 value;
-    int index;
+    size_t index;
     double density; // value/weight ratio
 };
 
 // Result struct to hold all output
 struct Result {
     int64 maxValue;
-    vector<int> selectedItems;
-    long long executionTime; // in microseconds
+    vector<size_t> selectedItems;
+    int64 executionTime; // in microseconds
     size_t memoryUsed; // in bytes (approximate)
 };
 
@@ -34,13 +35,13 @@ struct Result {
  */
 Result solveKnapsackGreedy(int64 capacity, const vector<int64> &weights, const vector<int64> &values) {
     Result result;
-    int n = weights.size();
+    size_t n = weights.size();
 
     auto start = chrono::high_resolution_clock::now();
 
     // Create items with density calculation
     vector<Item> items(n);
-    for (int i = 0; i < n; ++i) {
+    for (size_t i = 0; i < n; ++i) {
         items[i].weight = weights[i];
         items[i].value = values[i];
         items[i].index = i;
@@ -77,7 +78,7 @@ Result solveKnapsackGreedy(int64 capacity, const vector<int64> &weights, const v
 
     // Approximate memory used
     size_t itemVectorMemory = sizeof(Item) * n;
-    size_t resultVectorMemory = sizeof(int) * result.selectedItems.size();
+    size_t resultVectorMemory = sizeof(size_t) * result.selectedItems.size();
     size_t inputVectorsMemory = (sizeof(int64) * weights.size()) + (sizeof(int64) * values.size());
     result.memoryUsed = itemVectorMemory + resultVectorMemory + inputVectorsMemory;
 
@@ -89,24 +90,18 @@ int main(int argc, char *argv[]) {
     std::ios::sync_with_stdio(false);
     std::cin.tie(nullptr);
 
-    // Read input from stdin
-    int n;
-    int64 capacity;
-    cin >> n >> capacity;
-
-    vector<int64> weights(n);
-    vector<int64> values(n);
-
-    for (int i = 0; i < n; i++) {
-        cin >> weights[i];
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <input_file>" << std::endl;
+        return 1;
     }
 
-    for (int i = 0; i < n; i++) {
-        cin >> values[i];
+    KnapsackInstance instance;
+    if (!loadKnapsackInstance(argv[1], instance)) {
+        return 1;
     }
 
     // Solve the knapsack problem
-    Result result = solveKnapsackGreedy(capacity, weights, values);
+    Result result = solveKnapsackGreedy(instance.capacity, instance.weights, instance.values);
 
     // Output results in required format
     cout << result.maxValue << endl;

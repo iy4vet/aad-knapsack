@@ -5,7 +5,6 @@ Runs various knapsack algorithms and generates comprehensive visualisations
 """
 
 import asyncio
-import ast
 import logging
 import platform
 import re
@@ -126,37 +125,12 @@ class KnapsackSimulator:
         # Memory limit for subprocesses in GB. Set to None to disable.
         self.memory_limit_gb = None
 
-    def parse_list_string(self, s):
-        """Parse string representation of list to actual list"""
-        try:
-            return ast.literal_eval(s)
-        except (ValueError, SyntaxError) as e:
-            logger.error(f"Failed to parse list string: {s}, error: {e}")
-            return []
-
-    def _validate_inputs(self, algo_name, weights, values):
-        """Validate algorithm inputs"""
-        if not weights or not values:
-            logger.error(f"Empty weights or values for {algo_name}")
-            return False
-        if len(weights) != len(values):
-            logger.error(f"Weights and values length mismatch for {algo_name}")
-            return False
-        return True
-
     def _log_multiline_error(self, message, error_text):
         """Helper to log multi-line error messages"""
         logger.error(message)
         for line in error_text.split("\n"):
             if line.strip():
                 logger.error(f"\t{line.strip()}")
-
-    def _prepare_input_data(self, n, capacity, weights, values):
-        """Prepare input data string for algorithm"""
-        input_data = f"{n} {capacity}\n"
-        input_data += " ".join(map(str, weights)) + "\n"
-        input_data += " ".join(map(str, values)) + "\n"
-        return input_data
 
     def _calculate_timeout(self, n, custom_timeout=None):
         """Calculate adaptive timeout based on problem size"""
@@ -267,62 +241,122 @@ class KnapsackSimulator:
             "success": True,
         }
 
-    def load_dataset(self, dataset_name="knapsack_dataset.csv", category="Tiny"):
-        """Load knapsack dataset and filter by category"""
-        csv_path = self.data_path / dataset_name
-        if not csv_path.exists():
-            logger.error(f"Dataset file not found: {csv_path}")
+    def load_dataset(self, dataset_name, categories=None):
+        """Load knapsack dataset from individual text files in a directory.
+
+        Directory structure: /data/<datasetname>/<category>/<testid>.txt
+
+        Only reads the first 2 lines of each file (metadata), NOT the item data.
+        The C++ algorithms read the full file themselves.
+
+        Args:
+            dataset_name: Name of the dataset directory under data/ (e.g., 'knapsack_easy')
+            categories: Optional list of category names to include. If None, includes all.
+
+        Returns:
+            Tuple of (DataFrame with test cases, total count)
+        """
+        dataset_dir = self.data_path / dataset_name
+        if not dataset_dir.exists():
+            logger.error(f"Dataset directory not found: {dataset_dir}")
             return None, 0
 
-        try:
-            df = pd.read_csv(csv_path)
-        except Exception as e:
-            logger.error(f"Failed to read CSV file: {e}")
-            return None, 0
+        data = []
 
-        total_rows = len(df)
+        # Find all category subdirectories
+        all_category_dirs = sorted([d for d in dataset_dir.iterdir() if d.is_dir()])
 
-        # Filter by category
-        df_filtered = df[df["category"] == category].copy()
+        if not all_category_dirs:
+            logger.warning(f"No category directories found in: {dataset_dir}")
+            return pd.DataFrame(), 0
 
-        if df_filtered.empty:
-            logger.warning(f"No data found for category: {category}")
-            return df_filtered, total_rows
+        # Filter to requested categories if specified
+        if categories is not None:
+            category_dirs = [d for d in all_category_dirs if d.name in categories]
+            if not category_dirs:
+                logger.warning(
+                    f"No matching categories found. Requested: {categories}, "
+                    f"Available: {[d.name for d in all_category_dirs]}"
+                )
+                return pd.DataFrame(), 0
+            logger.info(f"Filtering to categories: {[d.name for d in category_dirs]}")
+        else:
+            category_dirs = all_category_dirs
 
-        # Parse list columns with error handling
-        for col in ["weights", "prices"]:
-            if col in df_filtered.columns:
-                df_filtered[col] = df_filtered[col].apply(self.parse_list_string)
-            else:
-                logger.error(f"Column '{col}' not found in dataset")
-                return None, 0
+        for category_dir in category_dirs:
+            category = category_dir.name
 
-        return df_filtered, total_rows
+            # Find all .txt files in this category
+            test_files = sorted(
+                [f for f in category_dir.glob("*.txt") if f.name != "metadata.txt"],
+                key=lambda x: int(x.stem),  # Sort by numeric filename
+            )
+
+            for test_file in test_files:
+                try:
+                    # Only read the first 2 lines - NOT the entire file!
+                    with open(test_file, "r") as f:
+                        line1 = f.readline()
+                        line2 = f.readline()
+
+                    # Parse first line: n capacity max_weight min_weight [optimum_value]
+                    first_line = line1.strip().split()
+                    n = int(first_line[0])
+                    capacity = int(first_line[1])
+                    max_weight = int(first_line[2]) if len(first_line) > 2 else 0
+                    min_weight = int(first_line[3]) if len(first_line) > 3 else 0
+                    best_price = int(first_line[4]) if len(first_line) > 4 else None
+
+                    # Parse second line: optimal picks (may be empty)
+                    best_picks = []
+                    if line2.strip():
+                        best_picks = list(map(int, line2.strip().split()))
+
+                    data.append(
+                        {
+                            "test_id": f"{category}_{test_file.stem}",
+                            "category": category,
+                            "filepath": str(test_file),
+                            "n": n,
+                            "capacity": capacity,
+                            "max_weight": max_weight,
+                            "min_weight": min_weight,
+                            "best_picks": best_picks if best_picks else None,
+                            "best_price": best_price,
+                        }
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to parse {test_file}: {e}")
+                    continue
+
+        if not data:
+            logger.warning(f"No valid data loaded from: {dataset_dir}")
+            return pd.DataFrame(), 0
+
+        df = pd.DataFrame(data)
+        df.set_index("test_id", inplace=True)
+
+        return df, len(data)
 
     def run_algorithm(
         self,
         algo_name,
+        filepath,
         n,
         capacity,
-        weights,
-        values,
         custom_timeout=None,
         memory_divisor=1,
     ):
-        """Run a specific algorithm with given inputs"""
+        """Run a specific algorithm with given inputs via filepath"""
         if algo_name not in self.algorithms:
             raise ValueError(f"Algorithm {algo_name} not found")
 
-        # Validate inputs
-        if not self._validate_inputs(algo_name, weights, values):
-            return None
-
-        # Get executable and build command
+        # Get executable and build command with filepath argument
         executable = self._get_executable_path(algo_name)
         cmd = self._build_command(executable)
+        cmd.append(filepath)
 
-        # Prepare input and timeout
-        input_data = self._prepare_input_data(n, capacity, weights, values)
+        # Calculate timeout
         timeout_seconds = self._calculate_timeout(n, custom_timeout)
 
         # Get resource limiter if applicable
@@ -333,7 +367,6 @@ class KnapsackSimulator:
             start = time.perf_counter()
             result = subprocess.run(
                 cmd,
-                input=input_data,
                 capture_output=True,
                 text=True,
                 timeout=timeout_seconds,
@@ -359,27 +392,22 @@ class KnapsackSimulator:
     async def run_algorithm_async(
         self,
         algo_name,
+        filepath,
         n,
         capacity,
-        weights,
-        values,
         custom_timeout=None,
         memory_divisor=1,
     ):
-        """Run a specific algorithm asynchronously with given inputs"""
+        """Run a specific algorithm asynchronously with given inputs via filepath"""
         if algo_name not in self.algorithms:
             raise ValueError(f"Algorithm {algo_name} not found")
 
-        # Validate inputs
-        if not self._validate_inputs(algo_name, weights, values):
-            return None
-
-        # Get executable and build command
+        # Get executable and build command with filepath argument
         executable = self._get_executable_path(algo_name)
         cmd = self._build_command(executable)
+        cmd.append(filepath)
 
-        # Prepare input and timeout
-        input_data = self._prepare_input_data(n, capacity, weights, values)
+        # Calculate timeout
         timeout_seconds = self._calculate_timeout(n, custom_timeout)
 
         # Get resource limiter if applicable
@@ -390,7 +418,6 @@ class KnapsackSimulator:
             start = time.perf_counter()
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
-                stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 preexec_fn=preexec_fn,
@@ -398,7 +425,7 @@ class KnapsackSimulator:
 
             try:
                 stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(input_data.encode()), timeout=timeout_seconds
+                    proc.communicate(), timeout=timeout_seconds
                 )
                 end = time.perf_counter()
                 elapsed_us = int((end - start) * 1_000_000)
@@ -493,19 +520,27 @@ class KnapsackSimulator:
     def simulate_all(
         self,
         dataset_name,
-        category,
         max_parallel,
+        categories=None,
         custom_timeout=None,
         memory_limit_gb=None,
     ):
-        """Run all algorithms on the dataset"""
+        """Run all algorithms on the dataset
+
+        Args:
+            dataset_name: Name of the dataset directory under data/
+            max_parallel: Maximum number of parallel tasks
+            categories: Optional list of category names to include. If None, includes all.
+            custom_timeout: Optional timeout in seconds (overrides adaptive timeout)
+            memory_limit_gb: Optional memory limit in GB
+        """
         # Set memory limit for this run
         self.memory_limit_gb = memory_limit_gb
 
-        logger.info(f"Loading {category} dataset from {dataset_name}...")
-        df, _ = self.load_dataset(dataset_name, category)
+        logger.info(f"Loading dataset from {dataset_name}...")
+        df, _ = self.load_dataset(dataset_name, categories=categories)
         if df is None or df.empty:
-            logger.error(f"No valid data for category {category}")
+            logger.error(f"No valid data for dataset {dataset_name}")
             return None
 
         logger.info(f"Found {len(df)} test cases.")
@@ -565,9 +600,9 @@ class KnapsackSimulator:
 
         # Save results
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        results_file = self.results_path / f"results_{category}_{timestamp}.csv"
+        results_file = self.results_path / f"results_{dataset_name}_{timestamp}.csv"
         results_df.to_csv(results_file, index=False)
-        logger.info(f"Results for {category} saved to {results_file}")
+        logger.info(f"Results for {dataset_name} saved to {results_file}")
 
         return results_df
 
@@ -1275,10 +1310,9 @@ class KnapsackSimulator:
 
                 result = await self.run_algorithm_async(
                     algo_name,
+                    row["filepath"],
                     row["n"],
                     row["capacity"],
-                    row["weights"],
-                    row["prices"],
                     custom_timeout,
                     memory_divisor,
                 )
@@ -1399,55 +1433,38 @@ def main():
     memory_limit_gb = 48.0
 
     # --- DEFINE: simulation runs ---
-    # Format: [dataset_name, category, max_parallel_tasks, timeout_seconds (optional)]
+    # Format: [dataset_name, max_parallel_tasks, [categories], timeout_seconds]
+    # - dataset_name: directory under data/ (required)
+    # - max_parallel_tasks: number of parallel tasks (required)
+    # - categories: list of category names to include, or None/omit for all (optional)
+    # - timeout_seconds: custom timeout, or None/omit for adaptive (optional)
     # Note: memory limit will be split among parallel tasks
     simulation_runs = [
-        # -- Default --
-        ["knapsack_easy_dataset.csv", "ETiny", 1],
-        # -- Easy --
-        # ["knapsack_easy_dataset_l012_400.csv", "ETiny", 12, 14],
-        # ["knapsack_easy_dataset_l012_400.csv", "ESmall", 12, 22],
-        # ["knapsack_easy_dataset_l012_400.csv", "EMedium", 8, 30],
-        # ["knapsack_easy_dataset_l3_50.csv", "ELarge", 8, 600],
-        # -- Trap --
-        # ["knapsack_trap_dataset_l012_400.csv", "TTiny", 12, 14],
-        # ["knapsack_trap_dataset_l012_400.csv", "TSmall", 12, 22],
-        # ["knapsack_trap_dataset_l012_400.csv", "TMedium", 8, 30],
-        # ["knapsack_trap_dataset_l3_50.csv", "TLarge", 8, 600],
-        # -- Hard1 --
-        # ["knapsack_hard1_dataset.csv", "H1known", 12, 14],
-        # ["knapsack_hard1_dataset.csv", "H1unknown", 12, 14],
-        # -- Hard2 --
-        # ["knapsack_hard2_dataset.csv", "H2xiang", 12, 14],
-        # ["knapsack_hard2_dataset.csv", "H2pisingerlowdim", 12, 14],
-        # ["knapsack_hard2_dataset.csv", "H2pisingerlarge", 8, 22],
-        # -- Random --
-        # ["knapsack_random_dataset_l0123_40.csv", "RTiny", 12, 14],
-        # ["knapsack_random_dataset_l0123_40.csv", "RSmall", 12, 22],
-        # ["knapsack_random_dataset_l0123_40.csv", "RMedium", 8, 30],
-        # ["knapsack_random_dataset_l0123_40.csv", "RLarge", 8, 600],
-        # ["knapsack_random_dataset_l3_50.csv", "RLarge", 8, 600],
+        ["knapsack_hard2", 8, ["H2pisingerlarge"], 4],
+        ["knapsack_hard2", 8, ["H2pisingerlowdim"], 4],
     ]
 
     # Create simulator
     simulator = KnapsackSimulator(base_path)
 
     for run_config in simulation_runs:
-        # Unpack config
+        # Unpack config with defaults
         dataset_name = run_config[0]
-        category = run_config[1]
-        max_parallel = run_config[2]
+        max_parallel = run_config[1]
+        categories = run_config[2] if len(run_config) > 2 else None
         timeout = run_config[3] if len(run_config) > 3 else None
 
-        logger.info(f"--- Running simulation for category: {category} ---")
+        logger.info(f"--- Running simulation for dataset: {dataset_name} ---")
         logger.info(f"Parallel tasks: {max_parallel}")
+        if categories:
+            logger.info(f"Categories: {categories}")
         if timeout:
             logger.info(f"Using timeout: {timeout}s")
 
         results_df = simulator.simulate_all(
             dataset_name=dataset_name,
-            category=category,
             max_parallel=max_parallel,
+            categories=categories,
             custom_timeout=timeout,
             memory_limit_gb=memory_limit_gb,
         )
@@ -1455,11 +1472,11 @@ def main():
         # Create visualisations only if we have results
         if results_df is not None and not results_df.empty:
             logger.info("Generating visualisations...")
-            simulator.create_visualisations(results_df, category=category)
+            simulator.create_visualisations(results_df, category=dataset_name)
         else:
             logger.warning(
-                "No results to visualise for category %s (check dataset and runs).",
-                category,
+                "No results to visualise for dataset %s (check dataset and runs).",
+                dataset_name,
             )
 
     logger.info("=" * 60)

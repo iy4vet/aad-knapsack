@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <numeric> // For std::iota
+#include "../file_io.hpp"
 
 using namespace std;
 using int64 = long long;
@@ -10,8 +11,8 @@ using int64 = long long;
 // A result struct to hold all output, matching your desired format
 struct Result {
     int64 maxValue;
-    vector<int> selectedItems;
-    long long executionTime; // in microseconds
+    vector<size_t> selectedItems;
+    int64 executionTime; // in microseconds
     size_t memoryUsed; // in bytes (approximate)
 };
 
@@ -24,7 +25,7 @@ struct Result {
  */
 Result solveKnapsackDP(int64 capacity, const vector<int64> &weights, const vector<int64> &values) {
     Result result;
-    int n = weights.size();
+    size_t n = weights.size();
 
     auto start = chrono::high_resolution_clock::now();
 
@@ -34,7 +35,7 @@ Result solveKnapsackDP(int64 capacity, const vector<int64> &weights, const vecto
     vector<vector<int64>> dp(n + 1, vector<int64>(capacity + 1, 0));
 
     // Fill the table
-    for (int i = 1; i <= n; ++i) {
+    for (size_t i = 1; i <= n; ++i) {
         // Get the weight and value of the *current* item (i-1 for 0-based index)
         int64 currentWeight = weights[i - 1];
         int64 currentValue = values[i - 1];
@@ -66,7 +67,7 @@ Result solveKnapsackDP(int64 capacity, const vector<int64> &weights, const vecto
 
     // --- Backtrack to find the selected items ---
     int64 w = capacity; // Start at the final capacity
-    for (int i = n; i > 0; --i) {
+    for (size_t i = n; i > 0; --i) {
         // Compare the current cell with the one directly above it
         // If they are the same, it means item 'i' was *not* included
         if (dp[i][w] == dp[i - 1][w]) {
@@ -86,9 +87,9 @@ Result solveKnapsackDP(int64 capacity, const vector<int64> &weights, const vecto
     result.executionTime = chrono::duration_cast<chrono::microseconds>(end - start).count();
 
     // Approximate memory used by the DP table + input/output vectors
-    size_t dpTableMemory = sizeof(int64) * (n + 1) * (capacity + 1);
+    size_t dpTableMemory = sizeof(int64) * (n + 1) * static_cast<size_t>(capacity + 1);
     size_t vectorMemory = (sizeof(int64) * (weights.size() + values.size())) +
-        (sizeof(int) * result.selectedItems.size());
+        (sizeof(size_t) * result.selectedItems.size());
     result.memoryUsed = dpTableMemory + vectorMemory;
 
     return result;
@@ -99,29 +100,23 @@ int main(int argc, char *argv[]) {
     std::ios::sync_with_stdio(false);
     std::cin.tie(nullptr);
 
-    // Read input from stdin
-    int n;
-    int64 capacity;
-    cin >> n >> capacity;
-
-    vector<int64> weights(n);
-    vector<int64> values(n);
-
-    for (int i = 0; i < n; i++) {
-        cin >> weights[i];
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <input_file>" << std::endl;
+        return 1;
     }
 
-    for (int i = 0; i < n; i++) {
-        cin >> values[i];
+    KnapsackInstance instance;
+    if (!loadKnapsackInstance(argv[1], instance)) {
+        return 1;
     }
 
     // Solve the knapsack problem
-    Result result = solveKnapsackDP(capacity, weights, values);
+    Result result = solveKnapsackDP(instance.capacity, instance.weights, instance.values);
 
     // Output results
     cout << result.maxValue << endl;
     cout << result.selectedItems.size() << endl;
-    for (int idx : result.selectedItems) {
+    for (size_t idx : result.selectedItems) {
         cout << idx << " ";
     }
     if (!result.selectedItems.empty()) {

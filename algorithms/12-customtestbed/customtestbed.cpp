@@ -9,15 +9,16 @@
 #include <limits>
 #include <set>
 #include <cstdlib>
+#include "../file_io.hpp"
 
 // Use int64 for large numbers
 using int64 = long long;
 
 struct Result {
-    int64 maxValue;                 
-    std::vector<int> selectedItems; 
-    long long executionTime;        
-    size_t memoryUsed;              
+    int64 maxValue;
+    std::vector<int> selectedItems;
+    long long executionTime;
+    size_t memoryUsed;
 };
 
 struct ItemProperty {
@@ -28,23 +29,23 @@ struct ItemProperty {
 };
 
 // --- Adaptive Hyperparameters ---
-size_t POPULATION_SIZE = 0;   
-size_t MAX_GENERATIONS = 0;   
-size_t NUM_ISLANDS = 1;       
-size_t ISLAND_SIZE = 0;      
-size_t MIGRATION_INTERVAL = 0; 
-unsigned int SEED = std::random_device()(); 
+size_t POPULATION_SIZE = 0;
+size_t MAX_GENERATIONS = 0;
+size_t NUM_ISLANDS = 1;
+size_t ISLAND_SIZE = 0;
+size_t MIGRATION_INTERVAL = 0;
+unsigned int SEED = std::random_device()();
 
 // Tuning
-size_t LAGRANGIAN_ITERATIONS = 500; 
-double BASE_SA_TEMP = 50.0;      
-double SA_COOLING_RATE = 0.90;     
-size_t SA_ITERATIONS = 0;           
+size_t LAGRANGIAN_ITERATIONS = 500;
+double BASE_SA_TEMP = 50.0;
+double SA_COOLING_RATE = 0.90;
+size_t SA_ITERATIONS = 0;
 
 // Controls how frequently repair is called across generations (to save time)
 size_t REPAIR_INTERVAL = 3;
 
-double BASE_MUTATION_RATE = 0.05; 
+double BASE_MUTATION_RATE = 0.05;
 double CORE_MUTATION_PROB;
 double NON_CORE_MUTATION_PROB;
 // Local search control
@@ -56,22 +57,22 @@ std::vector<int64> FULL_ITEM_WEIGHTS;
 std::vector<int64> FULL_ITEM_VALUES;
 size_t FULL_NUM_ITEMS;
 
-int64 KNAPSACK_CAPACITY; 
+int64 KNAPSACK_CAPACITY;
 std::vector<int64> ITEM_WEIGHTS;
 std::vector<int64> ITEM_VALUES;
 size_t NUM_ITEMS; // N'
-int64 GLOBAL_LOWER_BOUND = 0; 
+int64 GLOBAL_LOWER_BOUND = 0;
 int64 GLOBAL_UPPER_BOUND = std::numeric_limits<int64>::max();
 
-std::vector<double> REDUCED_COSTS; 
+std::vector<double> REDUCED_COSTS;
 enum ItemType { CORE, X1_HIGH, X0_LOW };
-std::vector<uint8_t> ITEM_CLASSIFICATION; 
+std::vector<uint8_t> ITEM_CLASSIFICATION;
 
-std::vector<int> v_w_order_indices;    
-std::vector<int> rcbo_order_indices;   
+std::vector<int> v_w_order_indices;
+std::vector<int> rcbo_order_indices;
 
-std::vector<size_t> core_to_original_index_map; 
-std::vector<int> fixed_one_items; 
+std::vector<size_t> core_to_original_index_map;
+std::vector<int> fixed_one_items;
 int64 fixed_items_value = 0;
 int64 fixed_items_weight = 0;
 
@@ -79,7 +80,7 @@ std::mt19937 rng;
 
 class Individual {
 public:
-    std::vector<int> selectedItemIndices; 
+    std::vector<int> selectedItemIndices;
     std::vector<bool> active_mask;
 
     int64 totalValue = 0;
@@ -92,7 +93,7 @@ public:
     void init(size_t n) {
         active_mask.assign(n, false);
         // Minimal reservation to save memory on large N
-        if (n < 1000) selectedItemIndices.reserve(n/2);
+        if (n < 1000) selectedItemIndices.reserve(n / 2);
     }
 
     void calculateMetrics() {
@@ -107,12 +108,12 @@ public:
 
     int64 getFitness() const {
         if (fitnessValid) return cachedFitness;
-        if (totalWeight > KNAPSACK_CAPACITY) cachedFitness = 0; 
+        if (totalWeight > KNAPSACK_CAPACITY) cachedFitness = 0;
         else cachedFitness = totalValue;
         fitnessValid = true;
         return cachedFitness;
     }
-    
+
     void add(int item_index) {
         if (!active_mask[item_index]) {
             active_mask[item_index] = true;
@@ -133,7 +134,7 @@ public:
             }
         }
     }
-    
+
     void repair() {
         // Phase 1: Remove worst (lowest Value/Weight)
         if (totalWeight > KNAPSACK_CAPACITY) {
@@ -142,17 +143,17 @@ public:
             current_items.reserve(selectedItemIndices.size());
             for (int idx : selectedItemIndices) {
                 float r = (ITEM_WEIGHTS[idx] > 0) ? (float)ITEM_VALUES[idx] / ITEM_WEIGHTS[idx] : 0.0f;
-                current_items.push_back({r, idx});
+                current_items.push_back({ r, idx });
             }
             std::sort(current_items.begin(), current_items.end());
 
-            for (const auto& p : current_items) {
+            for (const auto &p : current_items) {
                 if (totalWeight <= KNAPSACK_CAPACITY) break;
                 active_mask[p.second] = false;
                 totalWeight -= ITEM_WEIGHTS[p.second];
                 totalValue -= ITEM_VALUES[p.second];
             }
-            
+
             // Rebuild index list
             selectedItemIndices.clear();
             for (size_t i = 0; i < NUM_ITEMS; ++i) {
@@ -162,7 +163,7 @@ public:
 
         // Phase 2: Greedy Fill
         if (totalWeight < KNAPSACK_CAPACITY) {
-            for (int idx : v_w_order_indices) { 
+            for (int idx : v_w_order_indices) {
                 if (totalWeight + ITEM_WEIGHTS[idx] <= KNAPSACK_CAPACITY) {
                     if (!active_mask[idx]) {
                         active_mask[idx] = true;
@@ -184,17 +185,18 @@ public:
         if (NUM_ITEMS == 0) return;
         std::uniform_real_distribution<double> probDist(0.0, 1.0);
         std::uniform_int_distribution<int> dist(0, NUM_ITEMS - 1);
-        
+
         // Single mutation event for speed
         int item_index = dist(rng);
         double prob = (ITEM_CLASSIFICATION[item_index] == CORE) ? CORE_MUTATION_PROB : NON_CORE_MUTATION_PROB;
-        
+
         if (probDist(rng) < prob) {
             if (active_mask[item_index]) {
-                remove_fast(item_index); 
+                remove_fast(item_index);
                 totalWeight -= ITEM_WEIGHTS[item_index];
                 totalValue -= ITEM_VALUES[item_index];
-            } else {
+            }
+            else {
                 if (totalWeight + ITEM_WEIGHTS[item_index] <= KNAPSACK_CAPACITY) {
                     add(item_index);
                     totalWeight += ITEM_WEIGHTS[item_index];
@@ -211,7 +213,7 @@ public:
         std::uniform_real_distribution<double> prob(0.0, 1.0);
         std::uniform_int_distribution<int> index_dist(0, NUM_ITEMS - 1);
 
-        int64 currentFitness = getFitness(); 
+        int64 currentFitness = getFitness();
 
         for (size_t i = 0; i < SA_ITERATIONS; ++i) {
             int flip_idx = index_dist(rng);
@@ -219,7 +221,7 @@ public:
             int64 w_delta = was_selected ? -ITEM_WEIGHTS[flip_idx] : ITEM_WEIGHTS[flip_idx];
             int64 v_delta = was_selected ? -ITEM_VALUES[flip_idx] : ITEM_VALUES[flip_idx];
 
-            if (!was_selected && totalWeight + w_delta > KNAPSACK_CAPACITY) continue; 
+            if (!was_selected && totalWeight + w_delta > KNAPSACK_CAPACITY) continue;
 
             int64 newFitness = currentFitness + v_delta;
             int64 delta = newFitness - currentFitness;
@@ -227,7 +229,7 @@ public:
             if (delta > 0 || prob(rng) < std::exp(delta / temp)) {
                 if (was_selected) remove_fast(flip_idx);
                 else add(flip_idx);
-                
+
                 totalWeight += w_delta;
                 totalValue += v_delta;
                 currentFitness = newFitness;
@@ -238,11 +240,11 @@ public:
     }
 };
 
-size_t hammingDist(const Individual& a, const Individual& b) {
+size_t hammingDist(const Individual &a, const Individual &b) {
     size_t dist = 0;
-    const Individual* small = (a.selectedItemIndices.size() < b.selectedItemIndices.size()) ? &a : &b;
-    const Individual* large = (a.selectedItemIndices.size() < b.selectedItemIndices.size()) ? &b : &a;
-    
+    const Individual *small = (a.selectedItemIndices.size() < b.selectedItemIndices.size()) ? &a : &b;
+    const Individual *large = (a.selectedItemIndices.size() < b.selectedItemIndices.size()) ? &b : &a;
+
     for (int idx : small->selectedItemIndices) {
         if (!large->active_mask[idx]) dist++;
     }
@@ -266,22 +268,22 @@ std::pair<double, int64> lagrangianSubproblem(double u) {
         }
     }
 
-    return {val, w};
+    return { val, w };
 }
 
 void preprocess() {
     // 1. Greedy Bound
     std::vector<std::pair<double, int>> ratios(FULL_NUM_ITEMS);
-    for(size_t i=0; i<FULL_NUM_ITEMS; ++i) {
-        double r = (FULL_ITEM_WEIGHTS[i] > 0) ? (double)FULL_ITEM_VALUES[i]/FULL_ITEM_WEIGHTS[i] : 0;
-        ratios[i] = {r, (int)i};
+    for (size_t i = 0; i < FULL_NUM_ITEMS; ++i) {
+        double r = (FULL_ITEM_WEIGHTS[i] > 0) ? (double)FULL_ITEM_VALUES[i] / FULL_ITEM_WEIGHTS[i] : 0;
+        ratios[i] = { r, (int)i };
     }
     std::sort(ratios.rbegin(), ratios.rend());
-    
+
     int64 cw = 0;
     int64 cv = 0;
-    for(const auto& p : ratios) {
-        if(cw + FULL_ITEM_WEIGHTS[p.second] <= FULL_KNAPSACK_CAPACITY) {
+    for (const auto &p : ratios) {
+        if (cw + FULL_ITEM_WEIGHTS[p.second] <= FULL_KNAPSACK_CAPACITY) {
             cw += FULL_ITEM_WEIGHTS[p.second];
             cv += FULL_ITEM_VALUES[p.second];
         }
@@ -293,8 +295,8 @@ void preprocess() {
     double bestZUB = std::numeric_limits<double>::infinity();
     double best_u = u;
     double step = 2.0;
-    
-    size_t max_iter = (FULL_NUM_ITEMS > 50000) ? 100 : 500; 
+
+    size_t max_iter = (FULL_NUM_ITEMS > 50000) ? 100 : 500;
 
     for (size_t iter = 0; iter < max_iter; ++iter) {
         auto subp = lagrangianSubproblem(u);
@@ -313,10 +315,10 @@ void preprocess() {
         if (bestZUB > 0.0 && (bestZUB - (double)GLOBAL_LOWER_BOUND) / bestZUB < 1e-8) break;
 
         int64 g = sub_w - FULL_KNAPSACK_CAPACITY;
-        if (g == 0) break; 
+        if (g == 0) break;
 
-        u = std::max(0.0, u - step * (Z_u - GLOBAL_LOWER_BOUND) / (double)(g * g + 1)); 
-        step *= 0.90; 
+        u = std::max(0.0, u - step * (Z_u - GLOBAL_LOWER_BOUND) / (double)(g * g + 1));
+        step *= 0.90;
     }
 
     // 3. Variable Fixing
@@ -331,9 +333,11 @@ void preprocess() {
             fixed_items_value += FULL_ITEM_VALUES[i];
             fixed_items_weight += FULL_ITEM_WEIGHTS[i];
             fixed_one_items.push_back(i);
-        } else if (bestZUB + reduced < (double)GLOBAL_LOWER_BOUND - 1e-9) {
+        }
+        else if (bestZUB + reduced < (double)GLOBAL_LOWER_BOUND - 1e-9) {
             // Fixed to 0
-        } else {
+        }
+        else {
             core_weights.push_back(FULL_ITEM_WEIGHTS[i]);
             core_values.push_back(FULL_ITEM_VALUES[i]);
             core_to_original_index_map.push_back(i);
@@ -347,7 +351,7 @@ void preprocess() {
     KNAPSACK_CAPACITY = FULL_KNAPSACK_CAPACITY - fixed_items_weight;
 
     if (KNAPSACK_CAPACITY < 0) NUM_ITEMS = 0;
-    
+
     // 4. Heuristics
     if (NUM_ITEMS > 0) {
         ITEM_CLASSIFICATION.resize(NUM_ITEMS);
@@ -356,34 +360,35 @@ void preprocess() {
         std::iota(v_w_order_indices.begin(), v_w_order_indices.end(), 0);
         std::iota(rcbo_order_indices.begin(), rcbo_order_indices.end(), 0);
 
-        std::sort(v_w_order_indices.begin(), v_w_order_indices.end(), [&](int a, int b){
-            double r1 = (ITEM_WEIGHTS[a]>0)? (double)ITEM_VALUES[a]/ITEM_WEIGHTS[a] : 0;
-            double r2 = (ITEM_WEIGHTS[b]>0)? (double)ITEM_VALUES[b]/ITEM_WEIGHTS[b] : 0;
+        std::sort(v_w_order_indices.begin(), v_w_order_indices.end(), [&](int a, int b) {
+            double r1 = (ITEM_WEIGHTS[a] > 0) ? (double)ITEM_VALUES[a] / ITEM_WEIGHTS[a] : 0;
+            double r2 = (ITEM_WEIGHTS[b] > 0) ? (double)ITEM_VALUES[b] / ITEM_WEIGHTS[b] : 0;
             return r1 > r2;
-        });
+            });
 
-        std::sort(rcbo_order_indices.begin(), rcbo_order_indices.end(), [&](int a, int b){
+        std::sort(rcbo_order_indices.begin(), rcbo_order_indices.end(), [&](int a, int b) {
             return REDUCED_COSTS[a] > REDUCED_COSTS[b];
-        });
+            });
 
         int core_cnt = 0;
         double gap = (double)GLOBAL_UPPER_BOUND - GLOBAL_LOWER_BOUND;
-        for(size_t i=0; i<NUM_ITEMS; ++i) {
+        for (size_t i = 0; i < NUM_ITEMS; ++i) {
             if (std::abs(REDUCED_COSTS[i]) < gap * 0.1) {
                 ITEM_CLASSIFICATION[i] = CORE;
                 core_cnt++;
-            } else if (REDUCED_COSTS[i] > 0) ITEM_CLASSIFICATION[i] = X1_HIGH;
+            }
+            else if (REDUCED_COSTS[i] > 0) ITEM_CLASSIFICATION[i] = X1_HIGH;
             else ITEM_CLASSIFICATION[i] = X0_LOW;
         }
-        
-        if(core_cnt == 0) core_cnt = 1;
+
+        if (core_cnt == 0) core_cnt = 1;
         double scale = (double)NUM_ITEMS / core_cnt;
         CORE_MUTATION_PROB = std::min(0.5, BASE_MUTATION_RATE * scale);
         NON_CORE_MUTATION_PROB = BASE_MUTATION_RATE * 0.01;
     }
 }
 
-Individual createIndividualFromOrder(const std::vector<int>& order) {
+Individual createIndividualFromOrder(const std::vector<int> &order) {
     Individual ind;
     ind.init(NUM_ITEMS);
     for (int idx : order) {
@@ -400,32 +405,32 @@ Individual createIndividualFromOrder(const std::vector<int>& order) {
 void crossover(const Individual &p1, const Individual &p2, Individual &c1) {
     c1.init(NUM_ITEMS);
     // Fast Union
-    for(int idx : p1.selectedItemIndices) c1.add(idx);
-    for(int idx : p2.selectedItemIndices) c1.add(idx);
+    for (int idx : p1.selectedItemIndices) c1.add(idx);
+    for (int idx : p2.selectedItemIndices) c1.add(idx);
     c1.calculateMetrics();
 }
 
-void nextGeneration(std::vector<Individual>& pop, std::vector<Individual>& nextPop, bool doRepair) {
+void nextGeneration(std::vector<Individual> &pop, std::vector<Individual> &nextPop, bool doRepair) {
     // Simple elitism: carry over the best individual
-    auto bestIt = std::max_element(pop.begin(), pop.end(), [](const Individual &a, const Individual &b){ return a.getFitness() < b.getFitness(); });
+    auto bestIt = std::max_element(pop.begin(), pop.end(), [](const Individual &a, const Individual &b) { return a.getFitness() < b.getFitness(); });
     if (bestIt != pop.end()) nextPop[0] = *bestIt;
 
     // Helper for tournament selection
-    auto tournament = [&](int k=2) -> const Individual& {
-        std::uniform_int_distribution<size_t> idxDist(0, pop.size()-1);
-        const Individual* cur = &pop[idxDist(rng)];
-        for (int i=1; i<k; ++i) {
-            const Individual* cand = &pop[idxDist(rng)];
+    auto tournament = [&](int k = 2) -> const Individual & {
+        std::uniform_int_distribution<size_t> idxDist(0, pop.size() - 1);
+        const Individual *cur = &pop[idxDist(rng)];
+        for (int i = 1; i < k; ++i) {
+            const Individual *cand = &pop[idxDist(rng)];
             if (cand->getFitness() > cur->getFitness()) cur = cand;
         }
         return *cur;
-    };
+        };
 
     std::uniform_real_distribution<double> localProb(0.0, 1.0);
     size_t insertPos = 1;
     while (insertPos < pop.size()) {
-        const Individual& parent1 = tournament(3);
-        const Individual& parent2 = tournament(3);
+        const Individual &parent1 = tournament(3);
+        const Individual &parent2 = tournament(3);
 
         // generate two children from parents (union crossover)
         Individual child1, child2;
@@ -455,13 +460,13 @@ void nextGeneration(std::vector<Individual>& pop, std::vector<Individual>& nextP
     }
 }
 
-void migrate(std::vector<std::vector<Individual>>& islands) {
+void migrate(std::vector<std::vector<Individual>> &islands) {
     for (size_t i = 0; i < NUM_ISLANDS; ++i) {
         size_t next = (i + 1) % NUM_ISLANDS;
-        auto best_it = std::max_element(islands[i].begin(), islands[i].end(), 
-            [](auto& a, auto& b){ return a.getFitness() < b.getFitness(); });
-        auto worst_it = std::min_element(islands[next].begin(), islands[next].end(), 
-            [](auto& a, auto& b){ return a.getFitness() < b.getFitness(); });
+        auto best_it = std::max_element(islands[i].begin(), islands[i].end(),
+            [](auto &a, auto &b) { return a.getFitness() < b.getFitness(); });
+        auto worst_it = std::min_element(islands[next].begin(), islands[next].end(),
+            [](auto &a, auto &b) { return a.getFitness() < b.getFitness(); });
         *worst_it = *best_it;
     }
 }
@@ -481,16 +486,16 @@ Result solve() {
     Individual greedy = createIndividualFromOrder(v_w_order_indices);
     Individual rcbo = createIndividualFromOrder(rcbo_order_indices);
     int64 seedMax = std::max(greedy.getFitness(), rcbo.getFitness());
-    
+
     // The gap might not be zero, but if our seed hits the UB, it's optimal.
     // Or if problem was fully reduced (N=0).
     if (NUM_ITEMS == 0 || (GLOBAL_UPPER_BOUND > 0 && seedMax + fixed_items_value >= GLOBAL_UPPER_BOUND)) {
         // Found optimal immediately
         result.maxValue = seedMax + fixed_items_value;
-        Individual& best = (greedy.getFitness() > rcbo.getFitness()) ? greedy : rcbo;
-        
-        for(int idx : fixed_one_items) result.selectedItems.push_back(idx);
-        for(int idx : best.selectedItemIndices) result.selectedItems.push_back(core_to_original_index_map[idx]);
+        Individual &best = (greedy.getFitness() > rcbo.getFitness()) ? greedy : rcbo;
+
+        for (int idx : fixed_one_items) result.selectedItems.push_back(idx);
+        for (int idx : best.selectedItemIndices) result.selectedItems.push_back(core_to_original_index_map[idx]);
         std::sort(result.selectedItems.begin(), result.selectedItems.end());
         auto end = std::chrono::high_resolution_clock::now();
         result.executionTime = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
@@ -528,14 +533,15 @@ Result solve() {
     if (gap_ratio > 0.005) { // If gap > 0.5%, use SA
         // Use SA only for moderate-size cores; it's expensive on extremely large cores
         if (NUM_ITEMS <= 50000) {
-            SA_ITERATIONS = 2 + (size_t)(10.0 * (1.0 - std::exp(-((double)NUM_ITEMS)/5000.0)));
-        } else {
+            SA_ITERATIONS = 2 + (size_t)(10.0 * (1.0 - std::exp(-((double)NUM_ITEMS) / 5000.0)));
+        }
+        else {
             SA_ITERATIONS = 0; // disable SA for very large cores to keep runtime low
         }
     }
 
     // 6. Generations
-    MAX_GENERATIONS = 30 + (size_t)(6.0 * std::log(NUM_ITEMS + 1.0)); 
+    MAX_GENERATIONS = 30 + (size_t)(6.0 * std::log(NUM_ITEMS + 1.0));
     if (MAX_GENERATIONS > 100) MAX_GENERATIONS = 100;
 
     if (POPULATION_SIZE > 0) ISLAND_SIZE = POPULATION_SIZE / std::max((size_t)1, NUM_ISLANDS);
@@ -547,10 +553,10 @@ Result solve() {
         for (size_t j = 0; j < ISLAND_SIZE; ++j) {
             islands[i][j].init(NUM_ITEMS);
             // Seed first two, rest mutations
-            if (j==0) islands[i][j] = greedy;
-            else if (j==1) islands[i][j] = rcbo;
+            if (j == 0) islands[i][j] = greedy;
+            else if (j == 1) islands[i][j] = rcbo;
             else {
-                islands[i][j] = (j%2==0) ? greedy : rcbo;
+                islands[i][j] = (j % 2 == 0) ? greedy : rcbo;
                 islands[i][j].mutate();
                 islands[i][j].repair();
             }
@@ -565,7 +571,8 @@ Result solve() {
     // Local search probability: only run localSearch occasionally, tuned by gap_ratio
     if (SA_ITERATIONS == 0) {
         LOCAL_SEARCH_PROB = 0.0;
-    } else {
+    }
+    else {
         // Increase prob for small cores and noticeable gaps
         LOCAL_SEARCH_PROB = std::min(0.30, 0.02 + 0.30 * std::min(1.0, gap_ratio * 100.0));
     }
@@ -576,16 +583,16 @@ Result solve() {
             // Implement tournament selection + deterministic crowding + elitism
             // We'll pass along selection helpers through globals
             nextGeneration(islands[i], nextIslands[i], doRepair);
-            islands[i] = nextIslands[i]; 
+            islands[i] = nextIslands[i];
         }
         if (NUM_ISLANDS > 1 && g % 10 == 0) migrate(islands);
     }
 
     int64 maxVal = -1;
     Individual bestInd;
-    for(auto& isle : islands) {
-        for(auto& ind : isle) {
-            if(ind.getFitness() > maxVal) {
+    for (auto &isle : islands) {
+        for (auto &ind : isle) {
+            if (ind.getFitness() > maxVal) {
                 maxVal = ind.getFitness();
                 bestInd = ind;
             }
@@ -594,12 +601,12 @@ Result solve() {
 
     auto end = std::chrono::high_resolution_clock::now();
     result.executionTime = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    
+
     result.maxValue = maxVal + fixed_items_value;
     result.selectedItems.reserve(bestInd.selectedItemIndices.size() + fixed_one_items.size());
-    
-    for(int idx : fixed_one_items) result.selectedItems.push_back(idx);
-    for(int idx : bestInd.selectedItemIndices) result.selectedItems.push_back(core_to_original_index_map[idx]);
+
+    for (int idx : fixed_one_items) result.selectedItems.push_back(idx);
+    for (int idx : bestInd.selectedItemIndices) result.selectedItems.push_back(core_to_original_index_map[idx]);
     std::sort(result.selectedItems.begin(), result.selectedItems.end());
 
     // Final validation: ensure full solution (fixed + core) respects the full capacity
@@ -616,7 +623,7 @@ Result solve() {
         for (int idx : result.selectedItems) {
             if (fixedSet.count(idx)) continue; // prefer not to remove fixed items
             double r = (FULL_ITEM_WEIGHTS[idx] > 0) ? (double)FULL_ITEM_VALUES[idx] / (double)FULL_ITEM_WEIGHTS[idx] : 0.0;
-            removable.push_back({r, idx});
+            removable.push_back({ r, idx });
         }
         std::sort(removable.begin(), removable.end()); // ascending, remove lowest ratio first
 
@@ -635,7 +642,7 @@ Result solve() {
             std::vector<std::pair<double, int>> fixedRem; // ratio, idx
             for (int idx : result.selectedItems) {
                 double r = (FULL_ITEM_WEIGHTS[idx] > 0) ? (double)FULL_ITEM_VALUES[idx] / (double)FULL_ITEM_WEIGHTS[idx] : 0.0;
-                fixedRem.push_back({r, idx});
+                fixedRem.push_back({ r, idx });
             }
             std::sort(fixedRem.begin(), fixedRem.end());
             size_t pos = 0;
@@ -652,34 +659,48 @@ Result solve() {
         result.maxValue = full_value;
         if (std::getenv("DEBUG_CUSTOMTESTBED") != nullptr) {
             std::cerr << "[customtestbed] Final repair applied: new_value=" << result.maxValue
-                      << " new_weight=" << full_weight << " capacity=" << FULL_KNAPSACK_CAPACITY << "\n";
+                << " new_weight=" << full_weight << " capacity=" << FULL_KNAPSACK_CAPACITY << "\n";
         }
     }
 
-    result.memoryUsed = (sizeof(Individual) + NUM_ITEMS/8 + NUM_ITEMS*4) * ISLAND_SIZE * NUM_ISLANDS; 
+    result.memoryUsed = (sizeof(Individual) + NUM_ITEMS / 8 + NUM_ITEMS * 4) * ISLAND_SIZE * NUM_ISLANDS;
     return result;
 }
 
-void parseArguments(int argc, char *argv[]) {
+std::string parseArguments(int argc, char *argv[]) {
+    std::string filepath;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--population_size" && i + 1 < argc) POPULATION_SIZE = std::stoul(argv[++i]);
         else if (arg == "--max_generations" && i + 1 < argc) MAX_GENERATIONS = std::stoul(argv[++i]);
         else if (arg == "--seed" && i + 1 < argc) SEED = std::stoul(argv[++i]);
+        else if (arg[0] != '-' && filepath.empty()) filepath = arg;
     }
+    return filepath;
 }
 
 int main(int argc, char *argv[]) {
     std::ios::sync_with_stdio(false);
     std::cin.tie(nullptr);
-    parseArguments(argc, argv);
+    std::string filepath = parseArguments(argc, argv);
+
+    if (filepath.empty()) {
+        std::cerr << "Usage: " << argv[0] << " <input_file> [options]" << std::endl;
+        return 1;
+    }
+
     rng.seed(SEED);
 
-    std::cin >> FULL_NUM_ITEMS >> FULL_KNAPSACK_CAPACITY;
-    FULL_ITEM_WEIGHTS.resize(FULL_NUM_ITEMS);
-    FULL_ITEM_VALUES.resize(FULL_NUM_ITEMS);
-    for (size_t i = 0; i < FULL_NUM_ITEMS; i++) std::cin >> FULL_ITEM_WEIGHTS[i];
-    for (size_t i = 0; i < FULL_NUM_ITEMS; ++i) std::cin >> FULL_ITEM_VALUES[i];
+    // Load problem instance from file.
+    KnapsackInstance instance;
+    if (!loadKnapsackInstance(filepath, instance)) {
+        return 1;
+    }
+
+    FULL_NUM_ITEMS = instance.n;
+    FULL_KNAPSACK_CAPACITY = instance.capacity;
+    FULL_ITEM_WEIGHTS = std::move(instance.weights);
+    FULL_ITEM_VALUES = std::move(instance.values);
 
     Result res = solve();
 

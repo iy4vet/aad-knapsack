@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <chrono>
 #include <sys/resource.h>
+#include "../file_io.hpp"
 
 using namespace std;
 using int64 = long long;
@@ -100,16 +101,25 @@ size_t getmem() {
 }
 
 // --- Main Function ---
-int main() {
+int main(int argc, char *argv[]) {
     // --- Fast I/O Setup ---
     ios_base::sync_with_stdio(0);
     cin.tie(0);
 
-    // --- Input Reading ---
-    cin >> n >> cap;
-    vector<double> w(n), v(n);
-    for (size_t i = 0; i < n; i++) cin >> w[i];
-    for (size_t i = 0; i < n; i++) cin >> v[i];
+    if (argc < 2) {
+        cerr << "Usage: " << argv[0] << " <input_file>" << endl;
+        return 1;
+    }
+
+    KnapsackInstance instance;
+    if (!loadKnapsackInstance(argv[1], instance)) {
+        return 1;
+    }
+
+    n = instance.n;
+    cap = instance.capacity;
+    const vector<int64>& w = instance.weights;
+    const vector<int64>& v = instance.values;
 
     // --- Start Timer ---
     auto t0 = chrono::high_resolution_clock::now();
@@ -119,8 +129,8 @@ int main() {
     items.resize(n);
     for (size_t i = 0; i < n; i++) {
         // Handle zero-weight items: assign infinite ratio so they're processed first
-        double r = w[i] == 0 ? 1e18 : v[i] / w[i];
-        items[i] = { i, w[i], v[i], r };
+        double r = w[i] == 0 ? 1e18 : static_cast<double>(v[i]) / w[i];
+        items[i] = { i, static_cast<double>(w[i]), static_cast<double>(v[i]), r };
     }
 
     // --- Sort by Ratio (Crucial for B&B Performance) ---

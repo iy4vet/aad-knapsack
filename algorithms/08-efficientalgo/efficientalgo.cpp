@@ -6,6 +6,7 @@
 #include <vector>
 #include <algorithm>
 #include <chrono>
+#include "../file_io.hpp"
 
 using namespace std;
 using int64 = long long;
@@ -260,8 +261,8 @@ private:
 public:
     pair<int64, vector<int64>> solve(const vector<int64> &values,
         const vector<int64> &weights,
-        int64 capacity) {
-        n = values.size();
+        size_t items_n, int64 capacity) {
+        n = items_n;
         B = capacity;
 
         // Build items and sort by ratio
@@ -320,26 +321,29 @@ public:
     }
 };
 
-int main() {
+int main(int argc, char *argv[]) {
     ios_base::sync_with_stdio(false);
     cin.tie(NULL);
 
-    int64 n;
-    int64 capacity;
-    cin >> n >> capacity;
+    if (argc < 2) {
+        cerr << "Usage: " << argv[0] << " <input_file>" << endl;
+        return 1;
+    }
 
-    vector<int64> weights(n), values(n);
-    for (int64 i = 0; i < n; i++) {
-        cin >> weights[i];
+    KnapsackInstance instance;
+    if (!loadKnapsackInstance(argv[1], instance)) {
+        return 1;
     }
-    for (int64 i = 0; i < n; i++) {
-        cin >> values[i];
-    }
+
+    int64 n = static_cast<int64>(instance.n);
+    int64 capacity = instance.capacity;
+    const vector<int64> &weights = instance.weights;
+    const vector<int64> &values = instance.values;
 
     auto start = chrono::high_resolution_clock::now();
 
     KnapsackSolver solver;
-    auto [max_value, selected] = solver.solve(values, weights, capacity);
+    auto [max_value, selected] = solver.solve(values, weights, n, capacity);
 
     auto end = chrono::high_resolution_clock::now();
     int64 duration = chrono::duration_cast<chrono::microseconds>(end - start).count();
