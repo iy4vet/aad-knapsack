@@ -24,9 +24,21 @@ sns.set_style("whitegrid")
 plt.rcParams["figure.figsize"] = (12, 8)
 plt.rcParams["font.size"] = 10
 
-
 # Global logger
 logger = logging.getLogger(__name__)
+
+# Constants
+OPTIMALITY_TOLERANCE = 1e-9
+DEFAULT_TIMEOUT_PER_ITEM = 0.5  # seconds per item for adaptive timeout
+MIN_TIMEOUT = 2.0
+MAX_TIMEOUT = 120.0
+
+# Unit thresholds for formatting
+KB = 1024
+MB = KB * 1024
+GB = MB * 1024
+MS = 1000
+SEC = 1_000_000
 
 
 class KnapsackSimulator:
@@ -50,73 +62,85 @@ class KnapsackSimulator:
             "bruteforce": {
                 "executable": self.algorithms_path / "bin" / "bruteforce",
                 "name": "Brute Force",
-                "sort_key": lambda n, w: n,  # 2**n,
+                "sort_key": lambda n, capacity, wmax, wmin: n,
+                "exact": True,
                 "millionscale": False,
             },
             "memoization": {
                 "executable": self.algorithms_path / "bin" / "memoization",
                 "name": "Memoization",
-                "sort_key": lambda n, w: n * w,
+                "sort_key": lambda n, capacity, wmax, wmin: n * capacity,
+                "exact": True,
                 "millionscale": False,
             },
             "dynamicprogramming": {
                 "executable": self.algorithms_path / "bin" / "dynamicprogramming",
                 "name": "Dynamic Programming",
-                "sort_key": lambda n, w: n * w,
+                "sort_key": lambda n, capacity, wmax, wmin: n * capacity,
+                "exact": True,
                 "millionscale": False,
             },
             "branchandbound": {
                 "executable": self.algorithms_path / "bin" / "branchandbound",
                 "name": "Branch and Bound",
-                "sort_key": lambda n, w: n,
+                "sort_key": lambda n, capacity, wmax, wmin: n,
+                "exact": False,
                 "millionscale": False,
             },
             "meetinthemiddle": {
                 "executable": self.algorithms_path / "bin" / "meetinthemiddle",
                 "name": "Meet in the Middle",
-                "sort_key": lambda n, w: n,  # (2 ** (n / 2)) * n,
+                "sort_key": lambda n, capacity, wmax, wmin: n,
+                "exact": False,
                 "millionscale": False,
             },
             "greedyheuristic": {
                 "executable": self.algorithms_path / "bin" / "greedyheuristic",
                 "name": "Greedy Heuristic",
-                "sort_key": lambda n, w: n,  # n * np.log(n),
+                "sort_key": lambda n, capacity, wmax, wmin: n,
+                "exact": False,
                 "millionscale": True,
             },
             "randompermutation": {
                 "executable": self.algorithms_path / "bin" / "randompermutation",
                 "name": "Random Permutation",
-                "sort_key": lambda n, w: (n**1.5) * w,
+                "sort_key": lambda n, capacity, wmax, wmin: (n**1.5) * wmax,
+                "exact": False,
                 "millionscale": False,
             },
             "efficientalgo": {
                 "executable": self.algorithms_path / "bin" / "efficientalgo",
                 "name": "Efficient Algorithm",
-                "sort_key": lambda n, w: n,  # n * np.log(n),
+                "sort_key": lambda n, capacity, wmax, wmin: n,
+                "exact": False,
                 "millionscale": False,
             },
             "billionscale": {
                 "executable": self.algorithms_path / "bin" / "billionscale",
                 "name": "Billion Scale",
-                "sort_key": lambda n, w: n,  # (n * M) + n * np.log(n),
+                "sort_key": lambda n, capacity, wmax, wmin: n,
+                "exact": False,
                 "millionscale": True,
             },
             "geneticalgorithm": {
                 "executable": self.algorithms_path / "bin" / "geneticalgorithm",
                 "name": "Genetic Algorithm",
-                "sort_key": lambda n, w: n,  # n * P * G,
+                "sort_key": lambda n, capacity, wmax, wmin: n,
+                "exact": False,
                 "millionscale": True,
             },
             "customalgorithm": {
                 "executable": self.algorithms_path / "bin" / "customalgorithm",
                 "name": "Custom Algorithm",
-                "sort_key": lambda n, w: n,
+                "sort_key": lambda n, capacity, wmax, wmin: n,
+                "exact": False,
                 "millionscale": True,
             },
             "customtestbed": {
                 "executable": self.algorithms_path / "bin" / "customtestbed",
                 "name": "Custom Testbed",
-                "sort_key": lambda n, w: n,
+                "sort_key": lambda n, capacity, wmax, wmin: n,
+                "exact": False,
                 "millionscale": True,
             },
         }
@@ -134,13 +158,15 @@ class KnapsackSimulator:
 
     def _calculate_timeout(self, n, custom_timeout=None):
         """Calculate adaptive timeout based on problem size"""
-        per_item = 0.5  # seconds per item (heuristic)
-        timeout_seconds = min(
-            120.0, max(2.0, self.base_timeout_seconds + per_item * float(n))
-        )
         if custom_timeout is not None:
-            timeout_seconds = float(custom_timeout)
-        return timeout_seconds
+            return float(custom_timeout)
+        return min(
+            MAX_TIMEOUT,
+            max(
+                MIN_TIMEOUT,
+                self.base_timeout_seconds + DEFAULT_TIMEOUT_PER_ITEM * float(n),
+            ),
+        )
 
     def _get_executable_path(self, algo_name):
         """Get the executable path for an algorithm, handling Windows .exe extension"""
@@ -472,31 +498,27 @@ class KnapsackSimulator:
         """Initialize results dataframe with all necessary columns"""
         results_df = df.copy()
 
-        # Batch initialize numeric columns with numpy for better performance
-        numeric_columns = []
-        for algo_name in self.algorithms:
-            numeric_columns.extend(
-                [
-                    f"{algo_name}_value",
-                    f"{algo_name}_time",
-                    f"{algo_name}_memory",
-                    f"{algo_name}_accuracy",
-                ]
-            )
+        # Build all columns using dictionary comprehension
+        numeric_cols = {
+            f"{algo}_{suffix}": np.nan
+            for algo in self.algorithms
+            for suffix in ("value", "time", "memory", "accuracy")
+        }
+        bool_cols = {
+            f"{algo}_{suffix}": False
+            for algo in self.algorithms
+            for suffix in ("optimal", "exceeds_optimum")
+        }
+        object_cols = {f"{algo}_items": None for algo in self.algorithms}
 
-        # Initialize all numeric columns at once
-        results_df[numeric_columns] = np.nan
+        # Assign all columns at once
+        results_df = results_df.assign(
+            **numeric_cols, **bool_cols, **object_cols, computed_optimum=np.nan
+        )
 
-        # Initialize object and boolean columns
-        for algo_name in self.algorithms:
-            results_df[f"{algo_name}_items"] = pd.Series(
-                [None] * len(results_df), index=results_df.index, dtype=object
-            )
-            results_df[f"{algo_name}_optimal"] = False
-            results_df[f"{algo_name}_exceeds_optimum"] = False
-
-        # Add computed_optimum column to track the reference optimum
-        results_df["computed_optimum"] = np.nan
+        # Convert object columns to proper dtype
+        for col in object_cols:
+            results_df[col] = results_df[col].astype(object)
 
         return results_df
 
@@ -636,413 +658,465 @@ class KnapsackSimulator:
 
         logger.info(f"Visualisations saved to {viz_dir}")
 
+    def _get_filtered_data(self, df, algo, value_col, extra_filter_col=None):
+        """Get filtered dataframes for normal and exceeds-optimum cases.
+
+        Args:
+            df: Source DataFrame
+            algo: Algorithm name
+            value_col: Column name to check for valid (non-NA) values
+            extra_filter_col: Optional additional column to filter by (must be non-NA)
+
+        Returns:
+            Tuple of (df_normal, df_exceeds) DataFrames
+        """
+        exceeds_col = f"{algo}_exceeds_optimum"
+
+        # Build validity mask
+        valid_mask = df[value_col].notna()
+        if extra_filter_col and extra_filter_col in df.columns:
+            valid_mask &= df[extra_filter_col].notna()
+
+        # Get exceeds mask
+        exceeds_mask = (
+            df[exceeds_col]
+            if exceeds_col in df.columns
+            else pd.Series(False, index=df.index)
+        )
+
+        df_normal = df[valid_mask & ~exceeds_mask]
+        df_exceeds = (
+            df[valid_mask & exceeds_mask]
+            if exceeds_col in df.columns
+            else pd.DataFrame()
+        )
+
+        return df_normal, df_exceeds
+
+    @staticmethod
+    def _configure_plot(ax, xlabel, ylabel, title, use_log_x=False, use_log_y=False):
+        """Apply common plot configuration."""
+        ax.set_xlabel(xlabel, fontsize=12, fontweight="bold")
+        ax.set_ylabel(ylabel, fontsize=12, fontweight="bold")
+        ax.set_title(title, fontsize=14, fontweight="bold")
+        ax.legend(fontsize=10)
+        ax.grid(True, alpha=0.3)
+        if use_log_x:
+            ax.set_xscale("log")
+        if use_log_y:
+            ax.set_yscale("log")
+
+    @staticmethod
+    def _save_figure(fig, filepath):
+        """Save figure and close it properly."""
+        fig.tight_layout()
+        fig.savefig(filepath, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+
+    def _plot_scatter_with_exceeds(
+        self,
+        ax,
+        df_normal,
+        df_exceeds,
+        x_col,
+        y_col,
+        y_divisor,
+        algo_name,
+        normal_marker="o",
+        exceeds_marker="x",
+        normal_size=60,
+        exceeds_size=100,
+    ):
+        """Plot scatter data with special markers for exceeds-optimum cases."""
+        if not df_normal.empty:
+            ax.scatter(
+                df_normal[x_col],
+                df_normal[y_col] / y_divisor,
+                label=algo_name,
+                s=normal_size,
+                alpha=0.7,
+                marker=normal_marker,
+            )
+        if not df_exceeds.empty:
+            ax.scatter(
+                df_exceeds[x_col],
+                df_exceeds[y_col] / y_divisor,
+                s=exceeds_size,
+                alpha=0.9,
+                marker=exceeds_marker,
+                color="red",
+                linewidths=3,
+                label=f"{algo_name} (exceeds optimum!)",
+            )
+
     def _plot_time_vs_size(self, df, algorithms, viz_dir):
         """Plot execution time vs problem size"""
-        plt.figure(figsize=(12, 8))
+        fig, ax = plt.subplots(figsize=(12, 8))
+        try:
+            for algo in algorithms:
+                time_col = f"{algo}_time"
+                if time_col not in df.columns:
+                    continue
 
-        for algo in algorithms:
-            time_col = f"{algo}_time"
-            exceeds_col = f"{algo}_exceeds_optimum"
-            if time_col not in df.columns:
-                continue
-
-            # Use vectorized operations for filtering
-            time_valid = df[time_col].notna()
-            exceeds_exists = exceeds_col in df.columns
-            exceeds_mask = (
-                df[exceeds_col] if exceeds_exists else pd.Series(False, index=df.index)
-            )
-
-            df_normal = df[time_valid & ~exceeds_mask]
-            df_exceeds = (
-                df[time_valid & exceeds_mask] if exceeds_exists else pd.DataFrame()
-            )
-
-            # Plot normal cases with circles
-            if not df_normal.empty:
-                plt.scatter(
-                    df_normal["n"],
-                    df_normal[time_col] / 1000.0,
-                    label=self.algorithms[algo]["name"],
-                    s=60,
-                    alpha=0.7,
-                    marker="o",
+                df_normal, df_exceeds = self._get_filtered_data(df, algo, time_col)
+                self._plot_scatter_with_exceeds(
+                    ax,
+                    df_normal,
+                    df_exceeds,
+                    "n",
+                    time_col,
+                    1000.0,
+                    self.algorithms[algo]["name"],
                 )
 
-            # Plot exceeds-optimum cases with red X markers
-            if not df_exceeds.empty:
-                plt.scatter(
-                    df_exceeds["n"],
-                    df_exceeds[time_col] / 1000.0,
-                    s=100,
-                    alpha=0.9,
-                    marker="x",
-                    color="red",
-                    linewidths=3,
-                    label=f"{self.algorithms[algo]['name']} (exceeds optimum!)",
-                )
-
-        plt.xlabel("Problem Size (N)", fontsize=12, fontweight="bold")
-        plt.ylabel("Execution Time (ms)", fontsize=12, fontweight="bold")
-        plt.title("Execution Time vs Problem Size", fontsize=14, fontweight="bold")
-        plt.legend(fontsize=10)
-        plt.grid(True, alpha=0.3)
-        plt.xscale("log")
-        plt.yscale("log")
-        plt.tight_layout()
-        plt.savefig(viz_dir / "time_vs_size.png", dpi=300, bbox_inches="tight")
-        plt.close()
+            self._configure_plot(
+                ax,
+                "Problem Size (N)",
+                "Execution Time (ms)",
+                "Execution Time vs Problem Size",
+                use_log_x=True,
+                use_log_y=True,
+            )
+            self._save_figure(fig, viz_dir / "time_vs_size.png")
+        except Exception:
+            plt.close(fig)
+            raise
 
     def _plot_time_vs_capacity(self, df, algorithms, viz_dir):
         """Plot execution time vs knapsack capacity"""
-        plt.figure(figsize=(12, 8))
+        if "capacity" not in df.columns:
+            return
 
-        for algo in algorithms:
-            time_col = f"{algo}_time"
-            cap_col = "capacity"
-            exceeds_col = f"{algo}_exceeds_optimum"
-            if time_col not in df.columns or cap_col not in df.columns:
-                continue
+        fig, ax = plt.subplots(figsize=(12, 8))
+        try:
+            for algo in algorithms:
+                time_col = f"{algo}_time"
+                if time_col not in df.columns:
+                    continue
 
-            # Use vectorized operations for filtering
-            valid_mask = df[time_col].notna() & df[cap_col].notna()
-            exceeds_exists = exceeds_col in df.columns
-            exceeds_mask = (
-                df[exceeds_col] if exceeds_exists else pd.Series(False, index=df.index)
-            )
-
-            df_normal = df[valid_mask & ~exceeds_mask]
-            df_exceeds = (
-                df[valid_mask & exceeds_mask] if exceeds_exists else pd.DataFrame()
-            )
-
-            # Plot normal cases
-            if not df_normal.empty:
-                plt.scatter(
-                    df_normal[cap_col],
-                    df_normal[time_col] / 1000.0,
-                    label=self.algorithms[algo]["name"],
-                    s=60,
-                    alpha=0.7,
-                    marker="o",
+                df_normal, df_exceeds = self._get_filtered_data(
+                    df, algo, time_col, extra_filter_col="capacity"
+                )
+                self._plot_scatter_with_exceeds(
+                    ax,
+                    df_normal,
+                    df_exceeds,
+                    "capacity",
+                    time_col,
+                    1000.0,
+                    self.algorithms[algo]["name"],
                 )
 
-            # Plot exceeds-optimum cases with red X markers
-            if not df_exceeds.empty:
-                plt.scatter(
-                    df_exceeds[cap_col],
-                    df_exceeds[time_col] / 1000.0,
-                    s=100,
-                    alpha=0.9,
-                    marker="x",
-                    color="red",
-                    linewidths=3,
-                    label=f"{self.algorithms[algo]['name']} (exceeds optimum!)",
-                )
-
-        plt.xlabel("Knapsack Capacity", fontsize=12, fontweight="bold")
-        plt.ylabel("Execution Time (ms)", fontsize=12, fontweight="bold")
-        plt.title("Execution Time vs Knapsack Capacity", fontsize=14, fontweight="bold")
-        plt.legend(fontsize=10)
-        plt.grid(True, alpha=0.3)
-        plt.xscale("log")
-        plt.yscale("log")
-        plt.tight_layout()
-        plt.savefig(viz_dir / "time_vs_capacity.png", dpi=300, bbox_inches="tight")
-        plt.close()
+            self._configure_plot(
+                ax,
+                "Knapsack Capacity",
+                "Execution Time (ms)",
+                "Execution Time vs Knapsack Capacity",
+                use_log_x=True,
+                use_log_y=True,
+            )
+            self._save_figure(fig, viz_dir / "time_vs_capacity.png")
+        except Exception:
+            plt.close(fig)
+            raise
 
     def _plot_accuracy(self, df, algorithms, viz_dir):
         """Plot solution accuracy"""
-        plt.figure(figsize=(12, 8))
+        fig, ax = plt.subplots(figsize=(12, 8))
+        try:
+            accuracies = []
+            algo_names = []
 
-        accuracies = []
-        algo_names = []
+            for algo in algorithms:
+                acc_col = f"{algo}_accuracy"
+                if acc_col in df.columns:
+                    acc_values = df[acc_col].dropna()
+                    if len(acc_values) > 0:
+                        accuracies.append(acc_values.tolist())
+                        algo_names.append(self.algorithms[algo]["name"])
 
-        for algo in algorithms:
-            acc_col = f"{algo}_accuracy"
-            if acc_col in df.columns:
-                acc_values = df[acc_col].dropna()
-                if len(acc_values) > 0:
-                    accuracies.append(acc_values.tolist())
-                    algo_names.append(self.algorithms[algo]["name"])
-
-        if accuracies:
-            # Calculate dynamic y-axis limits
-            all_values = [val for acc_list in accuracies for val in acc_list]
-            if all_values:
-                min_acc = min(all_values)
-                max_acc = max(all_values)
-                # Add 5% padding on each side
-                range_acc = max_acc - min_acc
-                if range_acc < 1:  # If all values are very close
-                    y_min = max(0, min_acc - 5)
-                    y_max = min(105, max_acc + 5)
+            if accuracies:
+                # Calculate dynamic y-axis limits
+                all_values = [val for acc_list in accuracies for val in acc_list]
+                if all_values:
+                    min_acc = min(all_values)
+                    max_acc = max(all_values)
+                    # Add 5% padding on each side
+                    range_acc = max_acc - min_acc
+                    if range_acc < 1:  # If all values are very close
+                        y_min = max(0, min_acc - 5)
+                        y_max = min(105, max_acc + 5)
+                    else:
+                        padding = range_acc * 0.05
+                        y_min = max(0, min_acc - padding)
+                        y_max = min(105, max_acc + padding)
                 else:
-                    padding = range_acc * 0.05
-                    y_min = max(0, min_acc - padding)
-                    y_max = min(105, max_acc + padding)
+                    y_min, y_max = 95, 105
+
+                # Create boxplot with custom styling to show 100% better
+                bp = ax.boxplot(
+                    accuracies,
+                    labels=algo_names,  # pyright: ignore[reportCallIssue]
+                    patch_artist=True,
+                    boxprops=dict(facecolor="lightblue", alpha=0.7),
+                    medianprops=dict(color="red", linewidth=2),
+                    whiskerprops=dict(linewidth=1.5),
+                    capprops=dict(linewidth=1.5),
+                )
+
+                # Highlight algorithms at 100% with green boxes
+                for i, acc_list in enumerate(accuracies):
+                    if all(abs(val - 100) < 0.01 for val in acc_list):
+                        bp["boxes"][i].set_facecolor("lightgreen")
+                        bp["boxes"][i].set_alpha(0.9)
+
+                ax.set_ylabel("Accuracy (%)", fontsize=12, fontweight="bold")
+                ax.set_title(
+                    "Solution Quality Distribution", fontsize=14, fontweight="bold"
+                )
+                ax.grid(True, alpha=0.3, axis="y")
+                ax.set_ylim(y_min, y_max)
+                ax.axhline(
+                    y=100,
+                    color="darkgreen",
+                    linestyle="--",
+                    label="Optimal (100%)",
+                    linewidth=2,
+                )
+
+                # Rotate x-axis labels to prevent overlap
+                ax.tick_params(axis="x", rotation=30)
+                for label in ax.get_xticklabels():
+                    label.set_horizontalalignment("right")
+
+                ax.legend()
+                self._save_figure(fig, viz_dir / "accuracy_distribution.png")
             else:
-                y_min, y_max = 95, 105
+                plt.close(fig)
+        except Exception:
+            plt.close(fig)
+            raise
 
-            # Create boxplot with custom styling to show 100% better
-            bp = plt.boxplot(
-                accuracies,
-                labels=algo_names,  # pyright: ignore[reportCallIssue]
-                patch_artist=True,
-                boxprops=dict(facecolor="lightblue", alpha=0.7),
-                medianprops=dict(color="red", linewidth=2),
-                whiskerprops=dict(linewidth=1.5),
-                capprops=dict(linewidth=1.5),
-            )
-
-            # Highlight algorithms at 100% with green boxes
-            for i, acc_list in enumerate(accuracies):
-                if all(abs(val - 100) < 0.01 for val in acc_list):
-                    bp["boxes"][i].set_facecolor("lightgreen")
-                    bp["boxes"][i].set_alpha(0.9)
-
-            plt.ylabel("Accuracy (%)", fontsize=12, fontweight="bold")
-            plt.title("Solution Quality Distribution", fontsize=14, fontweight="bold")
-            plt.grid(True, alpha=0.3, axis="y")
-            plt.ylim([y_min, y_max])
-            plt.axhline(
-                y=100,
-                color="darkgreen",
-                linestyle="--",
-                label="Optimal (100%)",
-                linewidth=2,
-            )
-
-            # Rotate x-axis labels to prevent overlap
-            plt.xticks(rotation=30, ha="right")
-
-            plt.legend()
-            plt.tight_layout()
-            plt.savefig(
-                viz_dir / "accuracy_distribution.png", dpi=300, bbox_inches="tight"
-            )
-        plt.close()
-
-    def _plot_memory(self, df, algorithms, viz_dir):
-        """Plot memory usage with dynamic unit selection"""
-        plt.figure(figsize=(12, 8))
-
-        # Collect all memory values to determine appropriate unit - vectorized
+    def _determine_memory_unit(self, df, algorithms):
+        """Determine appropriate memory unit based on max value in data."""
         mem_cols = [
             f"{algo}_memory" for algo in algorithms if f"{algo}_memory" in df.columns
         ]
-        if mem_cols:
-            all_memory_bytes = df[mem_cols].values.flatten()
-            all_memory_bytes = all_memory_bytes[~np.isnan(all_memory_bytes)]
-        else:
-            all_memory_bytes = np.array([])
+        if not mem_cols:
+            return "KB", KB
 
-        # Determine appropriate unit based on max value
-        if len(all_memory_bytes) > 0:
-            max_memory = all_memory_bytes.max()
-            if max_memory < 1024:  # Less than 1 KB
-                unit = "Bytes"
-                divisor = 1
-            elif max_memory < 1024 * 1024:  # Less than 1 MB
-                unit = "KB"
-                divisor = 1024
-            elif max_memory < 1024 * 1024 * 1024:  # Less than 1 GB
-                unit = "MB"
-                divisor = 1024 * 1024
-            else:
-                unit = "GB"
-                divisor = 1024 * 1024 * 1024
-        else:
-            unit = "KB"
-            divisor = 1024
+        all_memory_bytes = df[mem_cols].values.flatten()
+        all_memory_bytes = all_memory_bytes[~np.isnan(all_memory_bytes)]
 
-        for algo in algorithms:
-            mem_col = f"{algo}_memory"
-            exceeds_col = f"{algo}_exceeds_optimum"
-            if mem_col not in df.columns:
-                continue
+        if len(all_memory_bytes) == 0:
+            return "KB", KB
 
-            # Use vectorized operations for filtering
-            mem_valid = df[mem_col].notna()
-            exceeds_exists = exceeds_col in df.columns
-            exceeds_mask = (
-                df[exceeds_col] if exceeds_exists else pd.Series(False, index=df.index)
+        max_memory = all_memory_bytes.max()
+        if max_memory < KB:
+            return "Bytes", 1
+        elif max_memory < MB:
+            return "KB", KB
+        elif max_memory < GB:
+            return "MB", MB
+        return "GB", GB
+
+    def _plot_memory(self, df, algorithms, viz_dir):
+        """Plot memory usage with dynamic unit selection"""
+        fig, ax = plt.subplots(figsize=(12, 8))
+        try:
+            unit, divisor = self._determine_memory_unit(df, algorithms)
+
+            for algo in algorithms:
+                mem_col = f"{algo}_memory"
+                if mem_col not in df.columns:
+                    continue
+
+                df_normal, df_exceeds = self._get_filtered_data(df, algo, mem_col)
+
+                # Plot normal cases
+                if not df_normal.empty:
+                    ax.scatter(
+                        df_normal["n"],
+                        df_normal[mem_col] / divisor,
+                        label=self.algorithms[algo]["name"],
+                        s=50,
+                        marker="s",
+                        alpha=0.7,
+                    )
+
+                # Plot exceeds-optimum cases with red diamonds
+                if not df_exceeds.empty:
+                    ax.scatter(
+                        df_exceeds["n"],
+                        df_exceeds[mem_col] / divisor,
+                        s=100,
+                        marker="D",
+                        alpha=0.9,
+                        color="red",
+                        edgecolors="darkred",
+                        linewidths=2,
+                        label=f"{self.algorithms[algo]['name']} (exceeds optimum!)",
+                    )
+
+            self._configure_plot(
+                ax,
+                "Problem Size (N)",
+                f"Memory Usage ({unit})",
+                "Memory Usage vs Problem Size",
             )
-
-            df_normal = df[mem_valid & ~exceeds_mask]
-            df_exceeds = (
-                df[mem_valid & exceeds_mask] if exceeds_exists else pd.DataFrame()
-            )
-
-            # Plot normal cases
-            if not df_normal.empty:
-                plt.scatter(
-                    df_normal["n"],
-                    df_normal[mem_col] / divisor,
-                    label=self.algorithms[algo]["name"],
-                    s=50,
-                    marker="s",
-                    alpha=0.7,
-                )
-
-            # Plot exceeds-optimum cases with red diamonds
-            if not df_exceeds.empty:
-                plt.scatter(
-                    df_exceeds["n"],
-                    df_exceeds[mem_col] / divisor,
-                    s=100,
-                    marker="D",
-                    alpha=0.9,
-                    color="red",
-                    edgecolors="darkred",
-                    linewidths=2,
-                    label=f"{self.algorithms[algo]['name']} (exceeds optimum!)",
-                )
-
-        plt.xlabel("Problem Size (N)", fontsize=12, fontweight="bold")
-        plt.ylabel(f"Memory Usage ({unit})", fontsize=12, fontweight="bold")
-        plt.title("Memory Usage vs Problem Size", fontsize=14, fontweight="bold")
-        plt.legend(fontsize=10)
-        plt.grid(True, alpha=0.3)
-        plt.tight_layout()
-        plt.savefig(viz_dir / "memory_usage.png", dpi=300, bbox_inches="tight")
-        plt.close()
+            self._save_figure(fig, viz_dir / "memory_usage.png")
+        except Exception:
+            plt.close(fig)
+            raise
 
     def _plot_quality_vs_time(self, df, algorithms, viz_dir):
         """Plot quality vs time (Pareto plot)"""
-        plt.figure(figsize=(12, 8))
+        fig, ax = plt.subplots(figsize=(12, 8))
+        try:
+            for algo in algorithms:
+                time_col = f"{algo}_time"
+                acc_col = f"{algo}_accuracy"
 
-        for algo in algorithms:
-            time_col = f"{algo}_time"
-            acc_col = f"{algo}_accuracy"
-            exceeds_col = f"{algo}_exceeds_optimum"
+                if time_col not in df.columns or acc_col not in df.columns:
+                    continue
 
-            if time_col not in df.columns or acc_col not in df.columns:
-                continue
-
-            # Use vectorized operations for filtering
-            valid_mask = df[time_col].notna() & df[acc_col].notna()
-            exceeds_exists = exceeds_col in df.columns
-            exceeds_mask = (
-                df[exceeds_col] if exceeds_exists else pd.Series(False, index=df.index)
-            )
-
-            df_normal = df[valid_mask & ~exceeds_mask]
-            df_exceeds = (
-                df[valid_mask & exceeds_mask] if exceeds_exists else pd.DataFrame()
-            )
-
-            # Plot normal cases
-            if not df_normal.empty:
-                plt.scatter(
-                    df_normal[time_col] / 1000.0,
-                    df_normal[acc_col],
-                    label=self.algorithms[algo]["name"],
-                    s=100,
-                    alpha=0.6,
-                    edgecolors="black",
-                    linewidth=1.5,
-                    marker="o",
+                # Filter for rows where both time and accuracy are valid
+                df_normal, df_exceeds = self._get_filtered_data(
+                    df, algo, time_col, extra_filter_col=acc_col
                 )
 
-            # Plot exceeds-optimum cases with red squares
-            if not df_exceeds.empty:
-                plt.scatter(
-                    df_exceeds[time_col] / 1000.0,
-                    df_exceeds[acc_col],
-                    s=150,
-                    alpha=0.9,
-                    marker="s",
-                    color="red",
-                    edgecolors="darkred",
-                    linewidth=2,
-                    label=f"{self.algorithms[algo]['name']} (exceeds optimum!)",
-                )
+                # Plot normal cases
+                if not df_normal.empty:
+                    ax.scatter(
+                        df_normal[time_col] / 1000.0,
+                        df_normal[acc_col],
+                        label=self.algorithms[algo]["name"],
+                        s=100,
+                        alpha=0.6,
+                        edgecolors="black",
+                        linewidth=1.5,
+                        marker="o",
+                    )
 
-        plt.xlabel("Execution Time (ms)", fontsize=12, fontweight="bold")
-        plt.ylabel("Solution Quality (%)", fontsize=12, fontweight="bold")
-        plt.title(
-            "Quality vs Time Trade-off (Pareto Plot)", fontsize=14, fontweight="bold"
-        )
-        plt.legend(fontsize=10)
-        plt.grid(True, alpha=0.3)
-        plt.xscale("log")
-        plt.tight_layout()
-        plt.savefig(viz_dir / "quality_vs_time.png", dpi=300, bbox_inches="tight")
-        plt.close()
+                # Plot exceeds-optimum cases with red squares
+                if not df_exceeds.empty:
+                    ax.scatter(
+                        df_exceeds[time_col] / 1000.0,
+                        df_exceeds[acc_col],
+                        s=150,
+                        alpha=0.9,
+                        marker="s",
+                        color="red",
+                        edgecolors="darkred",
+                        linewidth=2,
+                        label=f"{self.algorithms[algo]['name']} (exceeds optimum!)",
+                    )
+
+            self._configure_plot(
+                ax,
+                "Execution Time (ms)",
+                "Solution Quality (%)",
+                "Quality vs Time Trade-off (Pareto Plot)",
+                use_log_x=True,
+            )
+            self._save_figure(fig, viz_dir / "quality_vs_time.png")
+        except Exception:
+            plt.close(fig)
+            raise
 
     def _plot_optimality_rate(self, df, algorithms, viz_dir):
         """Plot optimality rate for each algorithm"""
-        plt.figure(figsize=(12, 6))
+        fig, ax = plt.subplots(figsize=(12, 6))
+        try:
+            algo_names = []
+            optimality_rates = []
 
-        algo_names = []
-        optimality_rates = []
+            for algo in algorithms:
+                opt_col = f"{algo}_optimal"
+                if opt_col in df.columns:
+                    # Ensure there are non-NA values to avoid errors on empty dataframes
+                    valid_entries = df[opt_col].dropna()
+                    if not valid_entries.empty:
+                        rate = valid_entries.sum() / len(valid_entries) * 100
+                    else:
+                        rate = 0.0
+                    algo_names.append(self.algorithms[algo]["name"])
+                    optimality_rates.append(rate)
 
-        for algo in algorithms:
-            opt_col = f"{algo}_optimal"
-            if opt_col in df.columns:
-                # Ensure there are non-NA values to avoid errors on empty dataframes
-                valid_entries = df[opt_col].dropna()
-                if not valid_entries.empty:
-                    rate = valid_entries.sum() / len(valid_entries) * 100
-                else:
-                    rate = 0.0
-                algo_names.append(self.algorithms[algo]["name"])
-                optimality_rates.append(rate)
-
-        if algo_names:
-            bars = plt.bar(
-                algo_names,
-                optimality_rates,
-                color="skyblue",
-                edgecolor="black",
-                linewidth=1.5,
-            )
-            plt.ylabel("Optimality Rate (%)", fontsize=12, fontweight="bold")
-            plt.title(
-                "Percentage of Optimal Solutions Found", fontsize=14, fontweight="bold"
-            )
-            plt.ylim([0, 105])
-            plt.grid(True, alpha=0.3, axis="y")
-
-            # Add value labels on bars
-            for bar, rate in zip(bars, optimality_rates):
-                height = bar.get_height()
-                plt.text(
-                    bar.get_x() + bar.get_width() / 2.0,
-                    height,
-                    f"{rate:.1f}%",
-                    ha="center",
-                    va="bottom",
+            if algo_names:
+                bars = ax.bar(
+                    algo_names,
+                    optimality_rates,
+                    color="skyblue",
+                    edgecolor="black",
+                    linewidth=1.5,
+                )
+                ax.set_ylabel("Optimality Rate (%)", fontsize=12, fontweight="bold")
+                ax.set_title(
+                    "Percentage of Optimal Solutions Found",
+                    fontsize=14,
                     fontweight="bold",
                 )
+                ax.set_ylim(0, 105)
+                ax.grid(True, alpha=0.3, axis="y")
 
-            # Rotate x-axis labels to prevent overlap
-            plt.xticks(rotation=30, ha="right")
+                # Add value labels on bars
+                for bar, rate in zip(bars, optimality_rates):
+                    height = bar.get_height()
+                    ax.text(
+                        bar.get_x() + bar.get_width() / 2.0,
+                        height,
+                        f"{rate:.1f}%",
+                        ha="center",
+                        va="bottom",
+                        fontweight="bold",
+                    )
 
-            plt.tight_layout()
-            plt.savefig(viz_dir / "optimality_rate.png", dpi=300, bbox_inches="tight")
-        plt.close()
+                # Rotate x-axis labels to prevent overlap
+                ax.tick_params(axis="x", rotation=30)
+                for label in ax.get_xticklabels():
+                    label.set_horizontalalignment("right")
+
+                self._save_figure(fig, viz_dir / "optimality_rate.png")
+            else:
+                plt.close(fig)
+        except Exception:
+            plt.close(fig)
+            raise
+
+    @staticmethod
+    def _format_with_unit(value, units):
+        """Generic formatter for values with dynamic unit selection.
+
+        Args:
+            value: The numeric value to format
+            units: List of (threshold, divisor, suffix, precision) tuples in ascending order
+        """
+        for threshold, divisor, suffix, precision in units:
+            if value < threshold:
+                return f"{value / divisor:.{precision}f} {suffix}"
+        # Use the last unit for values exceeding all thresholds
+        _, divisor, suffix, precision = units[-1]
+        return f"{value / divisor:.{precision}f} {suffix}"
 
     def _format_time(self, time_us):
         """Format time with appropriate unit"""
-        if time_us < 1000:  # Less than 1 ms
-            return f"{time_us:.1f} us"  # μs"
-        elif time_us < 1_000_000:  # Less than 1 s
-            return f"{time_us / 1000:.3f} ms"
-        else:
-            return f"{time_us / 1_000_000:.3f} s"
+        units = [
+            (MS, 1, "us", 1),  # < 1ms: show in microseconds
+            (SEC, MS, "ms", 3),  # < 1s: show in milliseconds
+            (float("inf"), SEC, "s", 3),  # >= 1s: show in seconds
+        ]
+        return self._format_with_unit(time_us, units)
 
     def _format_memory(self, memory_bytes):
         """Format memory with appropriate unit"""
-        if memory_bytes < 1024:  # Less than 1 KB
-            return f"{memory_bytes:.1f} B"
-        elif memory_bytes < 1024 * 1024:  # Less than 1 MB
-            return f"{memory_bytes / 1024:.2f} KB"
-        elif memory_bytes < 1024 * 1024 * 1024:  # Less than 1 GB
-            return f"{memory_bytes / (1024 * 1024):.2f} MB"
-        else:
-            return f"{memory_bytes / (1024 * 1024 * 1024):.2f} GB"
+        units = [
+            (KB, 1, "B", 1),  # < 1KB: show in bytes
+            (MB, KB, "KB", 2),  # < 1MB: show in kilobytes
+            (GB, MB, "MB", 2),  # < 1GB: show in megabytes
+            (float("inf"), GB, "GB", 2),  # >= 1GB: show in gigabytes
+        ]
+        return self._format_with_unit(memory_bytes, units)
 
     def _create_summary_table(self, df, algorithms, viz_dir):
         """Create summary statistics table with dynamic units"""
@@ -1101,38 +1175,40 @@ class KnapsackSimulator:
 
         # Create visual table
         fig, ax = plt.subplots(figsize=(12, len(summary_data) * 0.5 + 1.5))
-        ax.axis("tight")
-        ax.axis("off")
+        try:
+            ax.axis("tight")
+            ax.axis("off")
 
-        table = ax.table(
-            cellText=summary_df.values.tolist(),
-            colLabels=summary_df.columns.tolist(),
-            cellLoc="center",
-            loc="center",
-            colWidths=[0.2, 0.12, 0.12, 0.12, 0.16, 0.12, 0.16],
-        )
+            table = ax.table(
+                cellText=summary_df.values.tolist(),
+                colLabels=summary_df.columns.tolist(),
+                cellLoc="center",
+                loc="center",
+                colWidths=[0.2, 0.12, 0.12, 0.12, 0.16, 0.12, 0.16],
+            )
 
-        table.auto_set_font_size(False)
-        table.set_fontsize(10)
-        table.scale(1, 1.5)
+            table.auto_set_font_size(False)
+            table.set_fontsize(10)
+            table.scale(1, 1.5)
 
-        # Style header
-        for i in range(len(summary_df.columns)):
-            table[(0, i)].set_facecolor("#40466e")
-            table[(0, i)].set_text_props(weight="bold", color="white")
+            # Style header
+            for i in range(len(summary_df.columns)):
+                table[(0, i)].set_facecolor("#40466e")
+                table[(0, i)].set_text_props(weight="bold", color="white")
 
-        # Alternate row colours
-        for i in range(1, len(summary_data) + 1):
-            for j in range(len(summary_df.columns)):
-                if i % 2 == 0:
-                    table[(i, j)].set_facecolor("#f0f0f0")
-                else:
-                    table[(i, j)].set_facecolor("white")
+            # Alternate row colours
+            for i in range(1, len(summary_data) + 1):
+                for j in range(len(summary_df.columns)):
+                    if i % 2 == 0:
+                        table[(i, j)].set_facecolor("#f0f0f0")
+                    else:
+                        table[(i, j)].set_facecolor("white")
 
-        plt.title("Summary Statistics", fontsize=14, fontweight="bold", pad=20)
-        plt.tight_layout()
-        plt.savefig(viz_dir / "summary_table.png", dpi=300, bbox_inches="tight")
-        plt.close()
+            ax.set_title("Summary Statistics", fontsize=14, fontweight="bold", pad=20)
+            self._save_figure(fig, viz_dir / "summary_table.png")
+        except Exception:
+            plt.close(fig)
+            raise
 
         logger.info("Summary Statistics:")
         for line in summary_df.to_string(index=False).split("\n"):
@@ -1149,6 +1225,13 @@ class KnapsackSimulator:
             if f"{algo_name}_value" in results_df.columns
         }
 
+        # Separate exact and non-exact algorithms
+        exact_algo_value_cols = {
+            algo_name: col
+            for algo_name, col in algo_value_cols.items()
+            if self.algorithms[algo_name]["exact"]
+        }
+
         for idx in results_df.index:
             row = results_df.loc[idx]
 
@@ -1157,16 +1240,29 @@ class KnapsackSimulator:
                 # Use known optimum if available
                 reference_optimum = row["best_price"]
             else:
-                # Use maximum value returned by any algorithm - vectorized
-                algo_values = [
-                    row[col] for col in algo_value_cols.values() if pd.notna(row[col])
+                # Try exact algorithms first
+                exact_values = [
+                    row[col]
+                    for col in exact_algo_value_cols.values()
+                    if pd.notna(row[col])
                 ]
 
-                if algo_values:
-                    reference_optimum = max(algo_values)
+                if exact_values:
+                    # Use the value from exact algorithm(s) - they should all agree
+                    reference_optimum = max(exact_values)
                 else:
-                    # No algorithms produced results for this test case
-                    continue
+                    # Fall back to maximum value returned by any algorithm
+                    algo_values = [
+                        row[col]
+                        for col in algo_value_cols.values()
+                        if pd.notna(row[col])
+                    ]
+
+                    if algo_values:
+                        reference_optimum = max(algo_values)
+                    else:
+                        # No algorithms produced results for this test case
+                        continue
 
             # Store the computed optimum
             results_df.at[idx, "computed_optimum"] = reference_optimum
@@ -1179,7 +1275,7 @@ class KnapsackSimulator:
                 algo_value = row[value_col]
 
                 # Check if algorithm exceeded the optimum
-                exceeds_optimum = algo_value > reference_optimum + 1e-9
+                exceeds_optimum = algo_value > reference_optimum + OPTIMALITY_TOLERANCE
                 if exceeds_optimum:
                     over_optimum_cases.append(
                         {
@@ -1206,7 +1302,7 @@ class KnapsackSimulator:
                     accuracy = min(100.0, (algo_value / reference_optimum * 100.0))
 
                 # Determine optimality
-                is_optimal = abs(algo_value - reference_optimum) < 1e-9
+                is_optimal = abs(algo_value - reference_optimum) < OPTIMALITY_TOLERANCE
 
                 # Store results
                 results_df.at[idx, f"{algo_name}_accuracy"] = accuracy
@@ -1240,7 +1336,10 @@ class KnapsackSimulator:
 
             # Vectorised operation for better performance
             df_temp[complexity_col] = df_temp.apply(
-                lambda row: config["sort_key"](row["n"], row["capacity"]), axis=1
+                lambda row: config["sort_key"](
+                    row["n"], row["capacity"], row["max_weight"], row["min_weight"]
+                ),
+                axis=1,
             )
 
             # Store sorted indices
