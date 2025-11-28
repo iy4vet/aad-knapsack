@@ -71,9 +71,9 @@ int main(int argc, char *argv[]) {
     g_weights = &instance.weights;
     g_values = &instance.values;
 
-    memo.assign(n + 1, vector<int64>(capacity + 1, -1));
-
     auto start = high_resolution_clock::now();
+
+    memo.assign(n + 1, vector<int64>(capacity + 1, -1));
     int64 max_value = knapsack_memoization(n, capacity);
     vector<size_t> selected_items = reconstruct_solution();
     auto end = high_resolution_clock::now();

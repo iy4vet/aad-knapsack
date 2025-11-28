@@ -313,6 +313,9 @@ Result solveKnapsackGenetic() {
     // Start the timer.
     auto start = std::chrono::high_resolution_clock::now();
 
+    // Resize helper vector for repair function (included in timing).
+    included_indices.resize(NUM_ITEMS);
+
     // Create the initial population.
     std::vector<Individual> population = generateInitialPopulation();
     std::vector<Individual> nextPopulation(POPULATION_SIZE, Individual(NUM_ITEMS));
@@ -466,10 +469,8 @@ int main(int argc, char *argv[]) {
     // Set pointers to item data (no copy).
     g_ITEM_WEIGHTS = &instance.weights;
     g_ITEM_VALUES = &instance.values;
-    // Resize helper vector for repair function.
-    included_indices.resize(NUM_ITEMS);
 
-    // Solve the knapsack problem.
+    // Solve the knapsack problem (helper vector allocation happens inside timed function).
     Result result = solveKnapsackGenetic();
 
     // Print the results in the required format.

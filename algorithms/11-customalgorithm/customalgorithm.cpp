@@ -242,18 +242,6 @@ void preSortItems() {
 }
 
 
-// Finds minimum item weight in the instance for early exit optimization.
-void findMinItemWeight() {
-    // Handle empty item list.
-    if (g_ITEM_WEIGHTS->empty()) {
-        MIN_ITEM_WEIGHT = 0;
-        return;
-    }
-    // Find and store the minimum item weight.
-    MIN_ITEM_WEIGHT = *std::min_element(ITEM_WEIGHTS().begin(), ITEM_WEIGHTS().end());
-}
-
-
 // Generates a greedy individual based on value-to-weight ratio.
 Individual generateGreedyIndividual() {
     // Create an empty individual.
@@ -463,8 +451,7 @@ Result solveKnapsackGenetic() {
     // Pre-sort items by value-to-weight ratio.
     preSortItems();
 
-    // Find minimum item weight for early exit optimisation
-    findMinItemWeight();
+    // MIN_ITEM_WEIGHT is already set in main from instance.minWeight
 
     // Create the initial population.
     std::vector<Individual> population = generateInitialPopulation();
@@ -583,6 +570,7 @@ int main(int argc, char *argv[]) {
     // Set instance variables.
     NUM_ITEMS = instance.n;
     KNAPSACK_CAPACITY = instance.capacity;
+    MIN_ITEM_WEIGHT = instance.minWeight;  // Use pre-computed min weight from instance
 
     // If population size is not provided, compute it using a heuristic.
     if (POPULATION_SIZE == 0) {

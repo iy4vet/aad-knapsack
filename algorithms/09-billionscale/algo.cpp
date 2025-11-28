@@ -75,6 +75,9 @@ int main(int argc, char *argv[]) {
     int max_iters = 5000;       // safety cap (increased from 1000)
     double lambda = 0.0;        // initial lambda; will set below heuristically
 
+    // Timing start (includes all non-core data structure allocation)
+    auto t0 = chrono::high_resolution_clock::now();
+
     // OPTIMIZATION: Better initial lambda using median profit/weight ratio
     // This works better for hard instances with similar ratios
     vector<double> ratios;
@@ -94,9 +97,6 @@ int main(int argc, char *argv[]) {
     }
 
     vector<char> x(n, 0); // selected flags (0/1)
-
-    // Timing start
-    auto t0 = chrono::high_resolution_clock::now();
 
     int64 iter = 0;
     double rel_err = 1e9;

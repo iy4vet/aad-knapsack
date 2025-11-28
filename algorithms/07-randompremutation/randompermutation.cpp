@@ -27,23 +27,22 @@ int main(int argc, char *argv[]) {
 
     size_t n = instance.n;
     int64 W = instance.capacity;
+    int64 wmax = instance.maxWeight;  // Use pre-computed max weight from instance
     const vector<int64> &weights = instance.weights;
     const vector<int64> &values = instance.values;
 
+    // --- Start timer ---
+    auto start = high_resolution_clock::now();
+
     vector<Item> items(n);
-    int64 wmax = 0;
     for (size_t i = 0; i < n; ++i) {
         items[i] = { weights[i], values[i], i };
-        wmax = max(wmax, weights[i]);
     }
 
     // --- Random permutation ---
     random_device rd;
     mt19937_64 rng(rd());
     shuffle(items.begin(), items.end(), rng);
-
-    // --- Start timer ---
-    auto start = high_resolution_clock::now();
 
     // --- DP computation ---
     const int64 NEG_INF = -1e15;
