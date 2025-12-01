@@ -2,13 +2,13 @@
 # Compatible with Unix/WSL
 
 CXX = g++
-CXXFLAGS = -std=c++17 -O2 -Wall -Wextra
+CXXFLAGS = -std=c++17 -O3 -Wall -Wextra
 TARGET_DIR = bin
 
 # Algorithm directories
 ALGO_DIRS = 01-bruteforce 02-memoization 03-dynamicprogramming 04-branchandbound \
-            05-meetinthemiddle 06-greedyheuristic 07-randompremutation 08-efficientalgo\
-            09-billionscale 10-geneticalgorithm 11-customalgorithm
+            05-meetinthemiddle 06-greedyheuristic 07-randompremutation 08-efficientalgo \
+            09-billionscale 10-geneticalgorithm 11-customalgorithm 12-customtestbed
 
 # Explicit targets we currently build (following ALGO_DIRS order)
 TARGETS = $(TARGET_DIR)/bruteforce $(TARGET_DIR)/memoization $(TARGET_DIR)/dynamicprogramming \
@@ -19,8 +19,10 @@ TARGETS = $(TARGET_DIR)/bruteforce $(TARGET_DIR)/memoization $(TARGET_DIR)/dynam
 # Create bin directory if it doesn't exist
 $(shell mkdir -p $(TARGET_DIR))
 
-.PHONY: all clean help bruteforce memoization dynamicprogramming branchandbound \
-	meetinthemiddle greedyheuristic randompermutation billionscale geneticalgorithm customalgorithm
+.PHONY: all clean help bruteforce memoization dynamicprogramming \
+    branchandbound meetinthemiddle greedyheuristic \
+    randompermutation efficientalgo billionscale \
+    geneticalgorithm customalgorithm customtestbed
 
 # Default: build all explicit targets
 all: $(TARGETS)
@@ -127,4 +129,4 @@ help:
 	@echo ""
 	@echo "Available algorithms: bruteforce, memoization, dynamicprogramming, branchandbound,"
 	@echo "                      meetinthemiddle, greedyheuristic, randompermutation, efficientalgo,"
-	@echo "                      billionscale, geneticalgorithm, customalgorithm"
+	@echo "                      billionscale, geneticalgorithm, customalgorithm, customtestbed"

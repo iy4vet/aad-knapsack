@@ -45,13 +45,14 @@ Command-line arguments (all provided as --arg value):
     --mode    : problem mode - "easy", "trap", or "random" (default: easy)
     --name    : dataset name (default: knapsack_easy, knapsack_trap, or knapsack_random)
     --total   : total number of problems to generate (default: 100)
-    --level   : maximum difficulty level to include (default: 2)
-                    0 => Tiny only
-                    1 => Tiny + Small
-                    2 => Tiny + Small + Medium
-                    3 => ONLY Large
-                    4 => ONLY Massive
-                    5 => Tiny + Small + Medium + Large
+    --level   : string of difficulty levels to include (default: "012")
+                    0 => Tiny
+                    1 => Small
+                    2 => Medium
+                    3 => Large
+                    4 => Massive
+                    Example: "012" includes Tiny, Small, Medium
+                    Example: "34" includes Large, Massive
     --seed    : optional integer seed for reproducible sampling of (category,n)
 """
 
@@ -79,72 +80,62 @@ def log_uniform_int(low: int, high: int, rng: random.Random) -> int:
 
 
 def build_n_list(
-    total: int, rng: random.Random, level: Optional[int] = None
+    total: int, rng: random.Random, level: Optional[str] = None
 ) -> List[Dict]:
-    """Build a list of (category, n) entries totaling `total` problems.
+    """Build a list of (category, n) entries totalling `total` problems.
 
     Categories and sampling ranges:
-      Tiny   : 20 - 40
-      Small  : 10^2 - 10^3
-      Medium : 10^4 - 10^5
+      Tiny   : 20 - 10^2
+      Small  : 10^2 - 10^4
+      Medium : 10^4 - 10^6
       Large  : 10^6 - 10^7
-      Massive: 10^8 - 10^9
+      Massive: 10^7 - 10^8
 
-    We distribute `total` roughly evenly across the included categories and
-    sample n log-uniformly (Tiny uniformly).
+    We sample n log-uniformly across the complete range of selected categories,
+    then assign each n to the appropriate category based on which range it falls into.
     """
-    categories = [
-        ("Tiny", 20, 40),
-        ("Small", 10**2, 10**3),
-        ("Medium", 10**4, 10**5),
+    all_categories = [
+        ("Tiny", 20, 10**2),
+        ("Small", 10**2, 10**4),
+        ("Medium", 10**4, 10**6),
         ("Large", 10**6, 10**7),
-        ("Massive", 10**8, 10**9),
+        ("Massive", 10**7, 10**8),
     ]
-    # level controls how many categories to include: 0..5
+    # level is a string of digits indicating which categories to include
     if level is not None:
-        if level < 0 or level > 5:
-            raise ValueError("level must be 0, 1, 2, 3, 4, 5, or omitted")
-        if level <= 2:  # 0, 1, 2 are cumulative
-            categories = categories[: level + 1]
-        elif level == 3:  # Large only
-            categories = [categories[3]]
-        elif level == 4:  # Massive only
-            categories = [categories[4]]
-        elif level == 5:  # Tiny + Small + Medium + Large
-            categories = categories[:4]
+        # Validate that level contains only digits 0-4
+        if not all(c in "01234" for c in level):
+            raise ValueError("level must contain only digits 0-4")
+        if not level:
+            raise ValueError("level cannot be an empty string")
+        # Select categories based on the digits in level
+        selected_indices = [int(c) for c in level]
+        categories = [all_categories[i] for i in selected_indices]
+    else:
+        categories = all_categories
 
-    # Distribute `total` evenly across the number of included categories.
-    num_cats = len(categories)
-    per_cat = [total // num_cats] * num_cats
-    for i in range(total % num_cats):
-        per_cat[i] += 1
+    # Determine the global range across all selected categories
+    global_low = min(cat[1] for cat in categories)
+    global_high = max(cat[2] for cat in categories)
+
+    def get_category_for_n(n: int) -> Optional[str]:
+        """Return the category name for a given n, or None if outside all ranges."""
+        for cat_name, low, high in categories:
+            if low <= n < high or (n == high and cat_name == categories[-1][0]):
+                return cat_name
+        # Handle edge case: n equals the upper bound of the last category
+        if n == global_high:
+            return categories[-1][0]
+        return None
 
     result = []
-    # Use per-category counters to avoid rescanning `result` on every loop
-    per_cat_counts = {c[0]: 0 for c in categories}
-    for (cat, low, high), count in zip(categories, per_cat):
-        # For very small ranges (like Tiny) it's possible the user requests more
-        # entries than there are unique n values. In that case allow duplicates
-        # instead of spinning forever trying to deduplicate.
-        unique_possible = (high - low + 1) if cat == "Tiny" else None
-        seen = set()
-        attempts = 0
-        while per_cat_counts[cat] < count and attempts < max(1000, count * 10):
-            attempts += 1
-            if cat == "Tiny":
-                n = rng.randint(low, high)
-            else:
-                n = log_uniform_int(low, high, rng)
-            # If duplicates are possible but the requested count exceeds the
-            # unique possibilities, don't deduplicate.
-            if unique_possible is not None and count <= unique_possible:
-                if (cat, n) in seen:
-                    continue
-                seen.add((cat, n))
+    for _ in range(total):
+        n = log_uniform_int(global_low, global_high, rng)
+        cat = get_category_for_n(n)
+        if cat is not None:
             result.append({"category": cat, "n": int(n)})
-            per_cat_counts[cat] += 1
 
-    # Shuffle to avoid grouped categories
+    # Shuffle to randomise order
     rng.shuffle(result)
     return result
 
@@ -185,14 +176,14 @@ def main():
     )
     parser.add_argument(
         "--mode",
-        choices=["easy", "trap", "random"],
+        choices=["easy", "trap", "random", "hard"],
         default="easy",
-        help="Problem mode: 'easy', 'trap', or 'random' (default: easy)",
+        help="Problem mode: 'easy', 'trap', 'random', or 'hard' (default: easy)",
     )
     parser.add_argument(
         "--name",
         default=None,
-        help="Dataset name (default: knapsack_easy, knapsack_trap, or knapsack_random)",
+        help="Dataset name (default: knapsack_easy, knapsack_trap, knapsack_random, or knapsack_hard)",
     )
     parser.add_argument(
         "--total",
@@ -202,10 +193,23 @@ def main():
     )
     parser.add_argument(
         "--level",
+        type=str,
+        default="012",
+        help="String of difficulty levels to include (default '012')\n"
+        "     0=Tiny, 1=Small, 2=Medium, 3=Large, 4=Massive\n"
+        "     Example: '012' for Tiny+Small+Medium, '34' for Large+Massive",
+    )
+    parser.add_argument(
+        "--range",
         type=int,
-        choices=[0, 1, 2, 3, 4, 5],
-        default=2,
-        help="Which difficulty levels to include (default 2)\n",
+        default=1000,
+        help="Range of coefficients 'r' for hard instances (default 1000)",
+    )
+    parser.add_argument(
+        "--type",
+        type=int,
+        default=0,
+        help="Problem type for hard instances (1-16, 0=All, default 0)",
     )
     parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()
@@ -218,6 +222,8 @@ def main():
             args.name = "knapsack_trap"
         elif args.mode == "random":
             args.name = "knapsack_random"
+        elif args.mode == "hard":
+            args.name = "knapsack_hard"
         else:
             print(f"Error: Unknown mode '{args.mode}'", file=sys.stderr)
             sys.exit(1)
@@ -235,6 +241,9 @@ def main():
     elif args.mode == "random":
         cpp_src_file = "generate_random_instance.cpp"
         cpp_exe_file = "generate_random_instance"
+    elif args.mode == "hard":
+        cpp_src_file = "generate_hard_instance.cpp"
+        cpp_exe_file = "generate_hard_instance"
     else:
         print(f"Error: Unknown mode '{args.mode}'", file=sys.stderr)
         sys.exit(1)
@@ -257,7 +266,26 @@ def main():
 
     # --- 2. Build Problem Specs ---
     rng = random.Random(args.seed)
-    specs = build_n_list(args.total, rng, level=args.level)
+
+    # Determine which types to generate
+    if args.mode == "hard":
+        if args.type == 0:
+            target_types = list(range(1, 17))
+        else:
+            target_types = [args.type]
+    else:
+        target_types = [None]
+
+    all_specs = []
+    for t in target_types:
+        # Generate 'total' specs for this type
+        # Note: We reuse the same rng, so subsequent types get different random sequences
+        current_specs = build_n_list(args.total, rng, level=args.level)
+        for spec in current_specs:
+            spec["type"] = t  # Store type in spec
+            all_specs.append(spec)
+
+    specs = all_specs
     if not specs:
         print("No problems to generate. Exiting.")
         return
@@ -272,13 +300,17 @@ def main():
     print(f"Created output directory: {output_dir}")
 
     # --- 4. Create category subdirectories and count per category ---
-    # Prefix categories with mode letter: E=easy, T=trap, R=random
-    mode_prefix = {"easy": "E", "trap": "T", "random": "R"}[args.mode]
-
     category_counts = {}
     for spec in specs:
         cat = spec["category"]
-        prefixed_cat = f"{mode_prefix}{cat}"
+        if args.mode == "hard":
+            # H{type:02d}{Category}
+            t = spec["type"]
+            prefixed_cat = f"H{t:02d}{cat}"
+        else:
+            mode_prefix = {"easy": "E", "trap": "T", "random": "R"}[args.mode]
+            prefixed_cat = f"{mode_prefix}{cat}"
+
         spec["prefixed_category"] = prefixed_cat  # Store for later use
         category_counts[prefixed_cat] = category_counts.get(prefixed_cat, 0) + 1
 
@@ -295,6 +327,12 @@ def main():
         f.write(f"total={len(specs)}\n")
         f.write(f"level={args.level}\n")
         f.write(f"seed={args.seed}\n")
+        if args.mode == "hard":
+            f.write(f"range={args.range}\n")
+            if args.type == 0:
+                f.write("type=all\n")
+            else:
+                f.write(f"type={args.type}\n")
         for cat, count in sorted(category_counts.items()):
             f.write(f"{cat}={count}\n")
 
@@ -316,6 +354,17 @@ def main():
         if args.mode == "easy":
             # Easy mode does not require capacity
             cmd = [str(cpp_exe_path), str(filepath), str(n), str(seed)]
+        elif args.mode == "hard":
+            # Hard mode: filepath, n, r, type, seed
+            t = spec.get("type", args.type)
+            cmd = [
+                str(cpp_exe_path),
+                str(filepath),
+                str(n),
+                str(args.range),
+                str(t),
+                str(seed),
+            ]
         elif args.mode == "trap" or args.mode == "random":
             capacity = 0
             # Trap and random modes require capacity parameter

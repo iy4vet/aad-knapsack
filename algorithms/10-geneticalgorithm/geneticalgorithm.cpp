@@ -7,8 +7,13 @@
 #include <cstring>
 #include "../file_io.hpp"
 
-// Use int64 for large numbers
+// Use int64 for large numbers.
 using int64 = long long;
+
+
+// ============================================================================
+// Result Struct
+// ============================================================================
 
 // Struct to hold the results of the genetic algorithm.
 struct Result {
@@ -18,35 +23,42 @@ struct Result {
     size_t memoryUsed;                  // Approximate memory usage in bytes.
 };
 
-// Struct to hold item properties for sorting.
-struct ItemProperty {
-    size_t id;
-    double ratio;
+
+// ============================================================================
+// Hyperparameters Struct
+// ============================================================================
+
+// Struct to hold genetic algorithm hyperparameters.
+struct Hyperparameters {
+    size_t populationSize = 0;                  // Size of the population. If 0, set heuristically.
+    size_t maxGenerations = 0;                  // Number of generations. If 0, set heuristically.
+    double crossoverRate = 0.53;                // Probability of crossover.
+    double mutationRate = 0.013;                // Probability of mutation.
+    double reproductionRate = 0.15;             // Probability of direct reproduction.
+    unsigned int seed = std::random_device()(); // Seed for random number generator.
 };
 
 
-// Genetic Algorithm hyperparameters. These can be overridden by command-line arguments.
-size_t POPULATION_SIZE = 0;                 // Size of the population. If 0, set heuristically.
-size_t MAX_GENERATIONS = 0;                 // Number of generations. If 0, set heuristically.
-double CROSSOVER_RATE = 0.53;               // Probability of crossover.
-double MUTATION_RATE = 0.013;               // Probability of mutation.
-double REPRODUCTION_RATE = 0.15;            // Probability of direct reproduction.
-unsigned int SEED = std::random_device()(); // Seed for random number generator.
+// ============================================================================
+// Global State
+// ============================================================================
 
-// Global variables for the knapsack problem instance.
-int64 KNAPSACK_CAPACITY;                    // Maximum weight the knapsack can hold.
-const std::vector<int64> *g_ITEM_WEIGHTS;   // Pointer to item weights (set in main, no copy).
-const std::vector<int64> *g_ITEM_VALUES;    // Pointer to item values (set in main, no copy).
-size_t NUM_ITEMS;                           // Total number of items.
+// Global knapsack instance.
+KnapsackInstance INSTANCE;
 
-// Global random number generator and helper vector.
-std::mt19937 rng;                       // Mersenne Twister random number generator, seeded in main.
-std::vector<size_t> included_indices;   // Helper vector for repair function.
+// Global hyperparameters.
+Hyperparameters PARAMS;
 
-// Accessor helpers for cleaner code
-inline const std::vector<int64> &ITEM_WEIGHTS() { return *g_ITEM_WEIGHTS; }
-inline const std::vector<int64> &ITEM_VALUES() { return *g_ITEM_VALUES; }
+// Global random number generator.
+std::mt19937 rng;
 
+// Helper vector for repair function.
+std::vector<size_t> included_indices;
+
+
+// ============================================================================
+// Individual Class
+// ============================================================================
 
 // Class to represent an individual in the population.
 // Each individual is a potential solution, represented by a bit string.
@@ -65,10 +77,10 @@ public:
     void calculateMetrics() {
         totalValue = 0;
         totalWeight = 0;
-        for (size_t i = 0; i < NUM_ITEMS; ++i) {
+        for (size_t i = 0; i < INSTANCE.n; ++i) {
             if (bits[i]) {
-                totalValue += ITEM_VALUES()[i];
-                totalWeight += ITEM_WEIGHTS()[i];
+                totalValue += INSTANCE.values[i];
+                totalWeight += INSTANCE.weights[i];
             }
         }
         // Invalidate fitness cache as metrics have been recalculated.
@@ -83,7 +95,7 @@ public:
             return cachedFitness;
         }
         // Use pre-computed metrics to determine fitness.
-        if (totalWeight > KNAPSACK_CAPACITY) {
+        if (totalWeight > INSTANCE.capacity) {
             cachedFitness = 0;
         }
         else {
@@ -98,18 +110,18 @@ public:
     // It randomly removes items until the individual is valid.
     void repair() {
         // Calculate the current weight of the individual.
-        if (totalWeight <= KNAPSACK_CAPACITY) {
+        if (totalWeight <= INSTANCE.capacity) {
             return;
         }
         // Collect indices of items that are currently included in the knapsack.
         size_t included_count = 0;
-        for (size_t i = 0; i < NUM_ITEMS; ++i) {
+        for (size_t i = 0; i < INSTANCE.n; ++i) {
             if (bits[i]) {
                 included_indices[included_count++] = i;
             }
         }
         // Randomly remove items until the individual is within capacity.
-        while (totalWeight > KNAPSACK_CAPACITY && included_count > 0) {
+        while (totalWeight > INSTANCE.capacity && included_count > 0) {
             // Distribution for generating random indices.
             std::uniform_int_distribution<size_t> dist(0, included_count - 1);
             // Select a random item to remove.
@@ -121,8 +133,8 @@ public:
 
             // Update individual's bit string and metrics.
             bits[item_index] = 0;
-            totalWeight -= ITEM_WEIGHTS()[item_index];
-            totalValue -= ITEM_VALUES()[item_index];
+            totalWeight -= INSTANCE.weights[item_index];
+            totalValue -= INSTANCE.values[item_index];
         }
         // Invalidate the fitness cache as the individual has been modified.
         fitnessValid = false;
@@ -131,29 +143,31 @@ public:
     // Applies mutation to the individual.
     // Each bit in the individual's bit string has a chance to be flipped.
     void mutate() {
-        // Distribution for mutation probability.
-        std::uniform_real_distribution<double> probDist(0.0, 1.0);
+        // Use geometric distribution to skip bits that don't mutate.
+        // This is much faster when mutation rate is low (e.g. 1/N).
+        std::geometric_distribution<size_t> skipDist(PARAMS.mutationRate);
 
-        // Mutation flag.
         bool mutated = false;
-        // Apply mutation to each bit.
-        for (size_t i = 0; i < NUM_ITEMS; ++i) {
-            // Flip the bit with probability MUTATION_RATE and update metrics accordingly.
-            if (probDist(rng) < MUTATION_RATE) {
-                // Flipping true-> false, removing item.
-                if (bits[i]) {
-                    totalValue -= ITEM_VALUES()[i];
-                    totalWeight -= ITEM_WEIGHTS()[i];
-                }
-                // Flipping false-> true, adding item.
-                else {
-                    totalValue += ITEM_VALUES()[i];
-                    totalWeight += ITEM_WEIGHTS()[i];
-                }
-                // Flip the bit and set mutated flag.
-                bits[i].flip();
-                mutated = true;
+        size_t pos = skipDist(rng);
+
+        while (pos < INSTANCE.n) {
+            // Flip the bit at pos
+            if (bits[pos]) {
+                // Was true, becoming false (remove item)
+                totalValue -= INSTANCE.values[pos];
+                totalWeight -= INSTANCE.weights[pos];
+                bits[pos] = false;
             }
+            else {
+                // Was false, becoming true (add item)
+                totalValue += INSTANCE.values[pos];
+                totalWeight += INSTANCE.weights[pos];
+                bits[pos] = true;
+            }
+            mutated = true;
+
+            // Move to next mutation
+            pos += 1 + skipDist(rng);
         }
 
         // Invalidate fitness cache if mutation occurred.
@@ -164,22 +178,33 @@ public:
 };
 
 
+// ============================================================================
+// Population Generation Functions
+// ============================================================================
+
 // Generates the initial population of random individuals.
 std::vector<Individual> generateInitialPopulation() {
     // Init population vector.
     std::vector<Individual> population;
-    population.reserve(POPULATION_SIZE);
-    // Distribution for generating random bits.
-    std::uniform_int_distribution<int> bitDist(0, 1);
+    population.reserve(PARAMS.populationSize);
 
     // Create POPULATION_SIZE individuals with random bit strings.
-    for (size_t p = 0; p < POPULATION_SIZE; ++p) {
-        Individual ind(NUM_ITEMS);
-        for (size_t i = 0; i < NUM_ITEMS; ++i) {
-            ind.bits[i] = bitDist(rng);
+    for (size_t p = 0; p < PARAMS.populationSize; ++p) {
+        Individual ind(INSTANCE.n);
+
+        // Batched random bit generation
+        size_t i = 0;
+        while (i < INSTANCE.n) {
+            uint32_t randBits = rng(); // Generate 32 random bits
+            for (int b = 0; b < 32 && i < INSTANCE.n; ++b, ++i) {
+                if (randBits & (1u << b)) {
+                    ind.bits[i] = true;
+                    ind.totalValue += INSTANCE.values[i];
+                    ind.totalWeight += INSTANCE.weights[i];
+                }
+            }
         }
-        // Calculate metrics once from scratch.
-        ind.calculateMetrics();
+
         population.push_back(ind);
     }
 
@@ -192,10 +217,15 @@ std::vector<Individual> generateInitialPopulation() {
 }
 
 
+// ============================================================================
+// Selection Functions
+// ============================================================================
+
 // Selects two parent individuals from the population using tournament selection.
-std::pair<const Individual *, const Individual *> selection(const std::vector<Individual> &population) {
+std::pair<const Individual *, const Individual *> selection(
+    const std::vector<Individual> &population) {
     // Distribution for generating random indices.
-    std::uniform_int_distribution<size_t> indexDist(0, POPULATION_SIZE - 1);
+    std::uniform_int_distribution<size_t> indexDist(0, PARAMS.populationSize - 1);
 
     // Select four random individuals from the population.
     size_t idx1 = indexDist(rng);
@@ -205,13 +235,13 @@ std::pair<const Individual *, const Individual *> selection(const std::vector<In
 
     // Ensure distinct indices (individuals) for tournament selection.
     while (idx2 == idx1) {
-        idx2 = (idx2 + 1) % POPULATION_SIZE;
+        idx2 = (idx2 + 1) % PARAMS.populationSize;
     }
     while (idx3 == idx1 || idx3 == idx2) {
-        idx3 = (idx3 + 1) % POPULATION_SIZE;
+        idx3 = (idx3 + 1) % PARAMS.populationSize;
     }
     while (idx4 == idx1 || idx4 == idx2 || idx4 == idx3) {
-        idx4 = (idx4 + 1) % POPULATION_SIZE;
+        idx4 = (idx4 + 1) % PARAMS.populationSize;
     }
 
     // Tournament 1: Select the fitter individual between the first two.
@@ -232,26 +262,65 @@ std::pair<const Individual *, const Individual *> selection(const std::vector<In
 }
 
 
+// ============================================================================
+// Crossover Function
+// ============================================================================
+
 // Performs single-point crossover on two parent individuals to create two children.
 // The bit strings of the parents are split at the midpoint and swapped.
 void crossover(const Individual &parent1, const Individual &parent2,
     Individual &child1, Individual &child2) {
     // Crossover point is the midpoint of the bit string.
-    size_t midpoint = NUM_ITEMS / 2;
+    size_t midpoint = INSTANCE.n / 2;
 
-    // Child 1: First half from parent1, second half from parent2.
-    std::copy(parent1.bits.begin(), parent1.bits.begin() + midpoint, child1.bits.begin());
-    std::copy(parent2.bits.begin() + midpoint, parent2.bits.end(), child1.bits.begin() + midpoint);
+    // Reset metrics
+    child1.totalValue = 0; child1.totalWeight = 0;
+    child2.totalValue = 0; child2.totalWeight = 0;
 
-    // Child 2: First half from parent2, second half from parent1.
-    std::copy(parent2.bits.begin(), parent2.bits.begin() + midpoint, child2.bits.begin());
-    std::copy(parent1.bits.begin() + midpoint, parent1.bits.end(), child2.bits.begin() + midpoint);
+    // First half: child1 gets parent1, child2 gets parent2
+    for (size_t i = 0; i < midpoint; ++i) {
+        bool b1 = parent1.bits[i];
+        bool b2 = parent2.bits[i];
 
-    // Recalculate metrics from scratch for the children.
-    child1.calculateMetrics();
-    child2.calculateMetrics();
+        child1.bits[i] = b1;
+        if (b1) {
+            child1.totalValue += INSTANCE.values[i];
+            child1.totalWeight += INSTANCE.weights[i];
+        }
+
+        child2.bits[i] = b2;
+        if (b2) {
+            child2.totalValue += INSTANCE.values[i];
+            child2.totalWeight += INSTANCE.weights[i];
+        }
+    }
+
+    // Second half: child1 gets parent2, child2 gets parent1
+    for (size_t i = midpoint; i < INSTANCE.n; ++i) {
+        bool b2 = parent2.bits[i];
+        bool b1 = parent1.bits[i];
+
+        child1.bits[i] = b2;
+        if (b2) {
+            child1.totalValue += INSTANCE.values[i];
+            child1.totalWeight += INSTANCE.weights[i];
+        }
+
+        child2.bits[i] = b1;
+        if (b1) {
+            child2.totalValue += INSTANCE.values[i];
+            child2.totalWeight += INSTANCE.weights[i];
+        }
+    }
+
+    child1.fitnessValid = false;
+    child2.fitnessValid = false;
 }
 
+
+// ============================================================================
+// Generation Evolution
+// ============================================================================
 
 // Generates the next generation of the population and swaps it with the current population.
 // Uses selection followed by reproduction or crossover, and mutation.
@@ -259,32 +328,36 @@ void nextGeneration(const std::vector<Individual> &currentPop, std::vector<Indiv
     std::uniform_real_distribution<double> probDist(0.0, 1.0);
 
     // Fill the next population.
-    for (size_t i = 1; i < POPULATION_SIZE; ) {
+    for (size_t i = 0; i < PARAMS.populationSize; ) {
         // Select two parents using tournament selection.
         auto [parent1, parent2] = selection(currentPop);
 
         // Decide whether to reproduce directly or create offspring.
-        if (probDist(rng) < REPRODUCTION_RATE) {
+        if (probDist(rng) < PARAMS.reproductionRate) {
             // Reproduction: Directly copy parents to the next population.
-            nextPop[i++] = *parent1;
-            if (i < POPULATION_SIZE) {
-                nextPop[i++] = *parent2;
+            nextPop[i] = *parent1;
+            nextPop[i].repair();  // Ensure repaired
+            i++;
+            if (i < PARAMS.populationSize) {
+                nextPop[i] = *parent2;
+                nextPop[i].repair();  // Ensure repaired
+                i++;
             }
         }
         else {
             // Select two children slots in the next population.
             Individual &child1 = nextPop[i];
-            Individual &child2 = (i + 1 < POPULATION_SIZE) ? nextPop[i + 1] : child1;
+            Individual &child2 = (i + 1 < PARAMS.populationSize) ? nextPop[i + 1] : child1;
 
             // Decide whether to perform crossover.
-            if (probDist(rng) < CROSSOVER_RATE) {
+            if (probDist(rng) < PARAMS.crossoverRate) {
                 // Crossover: Create two children from the parents.
                 crossover(*parent1, *parent2, child1, child2);
             }
             else {
                 // No crossover: Children are copies of the parents.
                 child1 = *parent1;
-                if (i + 1 < POPULATION_SIZE) {
+                if (i + 1 < PARAMS.populationSize) {
                     child2 = *parent2;
                 }
             }
@@ -295,7 +368,7 @@ void nextGeneration(const std::vector<Individual> &currentPop, std::vector<Indiv
             i++;
 
             // Mutate and repair child2 if there's space in the population.
-            if (i < POPULATION_SIZE && &child1 != &child2) {
+            if (i < PARAMS.populationSize && &child1 != &child2) {
                 child2.mutate();
                 child2.repair();
                 i++;
@@ -303,6 +376,11 @@ void nextGeneration(const std::vector<Individual> &currentPop, std::vector<Indiv
         }
     }
 }
+
+
+// ============================================================================
+// Main Genetic Algorithm
+// ============================================================================
 
 
 // Main Genetic Algorithm function to solve the knapsack problem.
@@ -314,14 +392,14 @@ Result solveKnapsackGenetic() {
     auto start = std::chrono::high_resolution_clock::now();
 
     // Resize helper vector for repair function (included in timing).
-    included_indices.resize(NUM_ITEMS);
+    included_indices.resize(INSTANCE.n);
 
     // Create the initial population.
     std::vector<Individual> population = generateInitialPopulation();
-    std::vector<Individual> nextPopulation(POPULATION_SIZE, Individual(NUM_ITEMS));
+    std::vector<Individual> nextPopulation(PARAMS.populationSize, Individual(INSTANCE.n));
 
     // Evolve the population over generations.
-    for (size_t gen = 0; gen < MAX_GENERATIONS; ++gen) {
+    for (size_t gen = 0; gen < PARAMS.maxGenerations; ++gen) {
         nextGeneration(population, nextPopulation);
         population.swap(nextPopulation);
     }
@@ -339,7 +417,7 @@ Result solveKnapsackGenetic() {
     result.maxValue = bestIndividual.getFitness();
 
     // Collect the indices of the selected items.
-    for (size_t i = 0; i < NUM_ITEMS; ++i) {
+    for (size_t i = 0; i < INSTANCE.n; ++i) {
         if (bestIndividual.bits[i]) {
             result.selectedItems.push_back(i);
         }
@@ -348,22 +426,26 @@ Result solveKnapsackGenetic() {
     // Calculate execution time in microseconds.
     result.executionTime = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
 
-    // Approximate memory usage.
+    // Approximate memory usage (vector<bool> stores 1 bit per element).
     size_t populationMemory = 0;
     for (const auto &ind : population) {
-        populationMemory += sizeof(Individual) + ((ind.bits.capacity() + 7) / 8);
+        populationMemory += sizeof(Individual) + (ind.bits.capacity() + 7) / 8;
     }
     for (const auto &ind : nextPopulation) {
-        populationMemory += sizeof(Individual) + ((ind.bits.capacity() + 7) / 8);
+        populationMemory += sizeof(Individual) + (ind.bits.capacity() + 7) / 8;
     }
     size_t vectorMemory =
-        (sizeof(int64) * (ITEM_WEIGHTS().size() + ITEM_VALUES().size())) +
+        (sizeof(int64) * (INSTANCE.weights.size() + INSTANCE.values.size())) +
         (sizeof(size_t) * result.selectedItems.capacity());
     result.memoryUsed = populationMemory + vectorMemory;
 
     return result;
 }
 
+
+// ============================================================================
+// Command-line Argument Parsing
+// ============================================================================
 
 // Parses command-line arguments to override default hyperparameters.
 // Returns the input filepath if provided, empty string otherwise.
@@ -373,22 +455,22 @@ std::string parseArguments(int argc, char *argv[]) {
         std::string arg = argv[i];
 
         if (arg == "--population_size" && i + 1 < argc) {
-            POPULATION_SIZE = std::stoul(argv[++i]);
+            PARAMS.populationSize = std::stoul(argv[++i]);
         }
         else if (arg == "--max_generations" && i + 1 < argc) {
-            MAX_GENERATIONS = std::stoul(argv[++i]);
+            PARAMS.maxGenerations = std::stoul(argv[++i]);
         }
         else if (arg == "--crossover_rate" && i + 1 < argc) {
-            CROSSOVER_RATE = std::stod(argv[++i]);
+            PARAMS.crossoverRate = std::stod(argv[++i]);
         }
         else if (arg == "--mutation_rate" && i + 1 < argc) {
-            MUTATION_RATE = std::stod(argv[++i]);
+            PARAMS.mutationRate = std::stod(argv[++i]);
         }
         else if (arg == "--reproduction_rate" && i + 1 < argc) {
-            REPRODUCTION_RATE = std::stod(argv[++i]);
+            PARAMS.reproductionRate = std::stod(argv[++i]);
         }
         else if (arg == "--seed" && i + 1 < argc) {
-            SEED = static_cast<unsigned int>(std::stoi(argv[++i]));
+            PARAMS.seed = static_cast<unsigned int>(std::stoi(argv[++i]));
         }
         else if (arg == "--help" || arg == "-h") {
             std::cerr << "Usage: " << argv[0] << " <input_file> [options]" << "\n";
@@ -408,6 +490,11 @@ std::string parseArguments(int argc, char *argv[]) {
     return filepath;
 }
 
+
+// ============================================================================
+// Main Entry Point
+// ============================================================================
+
 int main(int argc, char *argv[]) {
     // Use fast I/O.
     std::ios::sync_with_stdio(false);
@@ -422,53 +509,44 @@ int main(int argc, char *argv[]) {
     }
 
     // Seed the random number generator.
-    rng.seed(SEED);
+    rng.seed(PARAMS.seed);
 
     // Load problem instance from file.
-    KnapsackInstance instance;
-    if (!loadKnapsackInstance(filepath, instance)) {
+    if (!loadKnapsackInstance(filepath, INSTANCE)) {
         return 1;
     }
 
-    // Set instance variables.
-    NUM_ITEMS = instance.n;
-    KNAPSACK_CAPACITY = instance.capacity;
-
     // If population size is not provided, compute it using a heuristic.
-    if (POPULATION_SIZE == 0) {
-        if (NUM_ITEMS < 100) {
-            POPULATION_SIZE = 20;
+    if (PARAMS.populationSize == 0) {
+        if (INSTANCE.n < 100) {
+            PARAMS.populationSize = 20;
         }
-        else if (NUM_ITEMS < 1000) {
-            POPULATION_SIZE = 50;
+        else if (INSTANCE.n < 1000) {
+            PARAMS.populationSize = 50;
         }
-        else if (NUM_ITEMS < 10000) {
-            POPULATION_SIZE = 100;
+        else if (INSTANCE.n < 10000) {
+            PARAMS.populationSize = 100;
         }
         else {
-            POPULATION_SIZE = 150;
+            PARAMS.populationSize = 150;
         }
     }
 
     // If max generations is not provided, compute it using a heuristic.
-    if (MAX_GENERATIONS == 0) {
-        if (NUM_ITEMS < 100) {
-            MAX_GENERATIONS = 200;
+    if (PARAMS.maxGenerations == 0) {
+        if (INSTANCE.n < 100) {
+            PARAMS.maxGenerations = 200;
         }
-        else if (NUM_ITEMS < 1000) {
-            MAX_GENERATIONS = 100;
+        else if (INSTANCE.n < 1000) {
+            PARAMS.maxGenerations = 100;
         }
-        else if (NUM_ITEMS < 10000) {
-            MAX_GENERATIONS = 50;
+        else if (INSTANCE.n < 10000) {
+            PARAMS.maxGenerations = 50;
         }
         else {
-            MAX_GENERATIONS = 30;
+            PARAMS.maxGenerations = 30;
         }
     }
-
-    // Set pointers to item data (no copy).
-    g_ITEM_WEIGHTS = &instance.weights;
-    g_ITEM_VALUES = &instance.values;
 
     // Solve the knapsack problem (helper vector allocation happens inside timed function).
     Result result = solveKnapsackGenetic();

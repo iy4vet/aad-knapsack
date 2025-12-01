@@ -369,7 +369,7 @@ Build Tools:
 
 ### C++ Side
 
-- Use `-O2` optimisation
+- Use `-O3` optimisation
 - Minimise memory allocations
 - Data loaded once via `loadKnapsackInstance()`
 - Measure time accurately (chrono)

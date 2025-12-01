@@ -1,5 +1,5 @@
 /**
- * Knapsack Problem Instance Generator (C++ Worker)
+ * Knapsack "Trap" Problem Instance Generator (C++ Worker)
  *
  * This program generates a single, hard-to-solve 0/1 knapsack problem
  * instance and writes it to a specified text file.

@@ -2,10 +2,11 @@
 """
 Script to process knapsack problem instances and generate individual text files.
 Processes all testcases from data/gh_knapsackProblemInstances/problemInstances directory.
+GitHub: https://github.com/JorikJooken/knapsackProblemInstances
 
 Output format:
-    /data/knapsack_hard1/<category>/<testid>.txt
-    where category is H1known or H1unknown
+    /data/knapsack_standard1/<category>/<testid>.txt
+    where category is S1known or S1unknown
     and testid increments from 1 within each category
 
 Text file format:
@@ -133,7 +134,7 @@ def main():
     instances_dir = base_dir / "gh_knapsackProblemInstances" / "problemInstances"
     optima_path = base_dir / "gh_knapsackProblemInstances" / "optima.csv"
 
-    output_dir = base_dir / "knapsack_hard1"
+    output_dir = base_dir / "knapsack_standard1"
 
     # Load optima
     print("Loading optima.csv...")
@@ -145,8 +146,8 @@ def main():
         print(f"Removing existing directory: {output_dir}")
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "H1known").mkdir(parents=True, exist_ok=True)
-    (output_dir / "H1unknown").mkdir(parents=True, exist_ok=True)
+    (output_dir / "S1known").mkdir(parents=True, exist_ok=True)
+    (output_dir / "S1unknown").mkdir(parents=True, exist_ok=True)
     print(f"Created output directory: {output_dir}")
 
     # Process all subdirectories
@@ -154,8 +155,8 @@ def main():
     instance_folders = sorted([d for d in instances_dir.iterdir() if d.is_dir()])
 
     # Track test_id per category
-    known_test_id = 0
-    unknown_test_id = 0
+    s1_known_test_id = 0
+    s1_unknown_test_id = 0
     known_count = 0
     unknown_count = 0
 
@@ -184,8 +185,8 @@ def main():
             if best_price is not None and best_price == optimum:
                 # Find indices of selected items
                 best_picks = find_item_indices(weights, prices, selected_items)
-                known_test_id += 1
-                filepath = output_dir / "H1known" / f"{known_test_id}.txt"
+                s1_known_test_id += 1
+                filepath = output_dir / "S1known" / f"{s1_known_test_id}.txt"
                 write_instance_file(
                     filepath, n, weights, prices, capacity, best_picks, best_price
                 )
@@ -194,14 +195,14 @@ def main():
                 print(
                     f"Warning: {folder_name} - could not parse output or mismatch with optima"
                 )
-                unknown_test_id += 1
-                filepath = output_dir / "H1unknown" / f"{unknown_test_id}.txt"
+                s1_unknown_test_id += 1
+                filepath = output_dir / "S1unknown" / f"{s1_unknown_test_id}.txt"
                 write_instance_file(filepath, n, weights, prices, capacity, [], None)
                 unknown_count += 1
         else:
             # Optimum not known
-            unknown_test_id += 1
-            filepath = output_dir / "H1unknown" / f"{unknown_test_id}.txt"
+            s1_unknown_test_id += 1
+            filepath = output_dir / "S1unknown" / f"{s1_unknown_test_id}.txt"
             write_instance_file(filepath, n, weights, prices, capacity, [], None)
             unknown_count += 1
 
@@ -215,12 +216,12 @@ def main():
         f.write(f"H1unknown={unknown_count}\n")
 
     print(f"\nProcessed {len(instance_folders)} instances")
-    print(f"H1known: {known_count}")
-    print(f"H1unknown: {unknown_count}")
+    print(f"S1known: {known_count}")
+    print(f"S1unknown: {unknown_count}")
 
     print("\nDone!")
     print(f"Generated {total_count} files in: {output_dir}")
-    print(f"  H1known/{known_count} files, H1unknown/{unknown_count} files")
+    print(f"  S1known/{known_count} files, S1unknown/{unknown_count} files")
 
 
 if __name__ == "__main__":

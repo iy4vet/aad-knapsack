@@ -1,5 +1,7 @@
 /**
  * Knapsack "Random" Problem Instance Generator (C++ Worker)
+ * Adapted from generator.cpp by Jorik Jooken (2022)
+ * https://github.com/JorikJooken/knapsackProblemInstances/blob/master/generator.cpp
  *
  * This program generates a single, random 0/1 knapsack problem instance
  * based on the algorithm from generator.cpp and writes it to a specified text file.
