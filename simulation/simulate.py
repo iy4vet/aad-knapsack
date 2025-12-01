@@ -145,6 +145,13 @@ class KnapsackSimulator:
                 "exact": False,
                 "millionscale": True,
             },
+            "combo": {
+                "executable": self.algorithms_path / "bin" / "combo",
+                "name": "Pisinger's Combo",
+                "sort_key": lambda n, capacity, wmax, wmin: n * capacity,
+                "exact": True,
+                "millionscale": False,
+            },
         }
 
     # ==== Helpers for load_dataset() ====
@@ -1355,7 +1362,7 @@ def main():
                 [f"H{i}Tiny", f"H{i}Small", f"H{i}Medium"],
                 [4, 12, 30],
             ]
-            for i in [f"{j:02d}" for j in range(1, 17)]
+            for i in [f"{j:02d}" for j in range(1, 17) if j != 10]
         ]
     )
 

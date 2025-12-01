@@ -270,7 +270,7 @@ def main():
     # Determine which types to generate
     if args.mode == "hard":
         if args.type == 0:
-            target_types = list(range(1, 17))
+            target_types = [t for t in range(1, 17) if t != 10]
         else:
             target_types = [args.type]
     else:

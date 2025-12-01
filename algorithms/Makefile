@@ -7,22 +7,24 @@ TARGET_DIR = bin
 
 # Algorithm directories
 ALGO_DIRS = 01-bruteforce 02-memoization 03-dynamicprogramming 04-branchandbound \
-            05-meetinthemiddle 06-greedyheuristic 07-randompremutation 08-efficientalgo \
-            09-billionscale 10-geneticalgorithm 11-customalgorithm 12-customtestbed
+			05-meetinthemiddle 06-greedyheuristic 07-randompremutation 08-efficientalgo \
+			09-billionscale 10-geneticalgorithm 11-customalgorithm 12-customtestbed \
+			13-combo
 
 # Explicit targets we currently build (following ALGO_DIRS order)
 TARGETS = $(TARGET_DIR)/bruteforce $(TARGET_DIR)/memoization $(TARGET_DIR)/dynamicprogramming \
 	$(TARGET_DIR)/branchandbound $(TARGET_DIR)/meetinthemiddle $(TARGET_DIR)/greedyheuristic \
 	$(TARGET_DIR)/randompermutation $(TARGET_DIR)/efficientalgo $(TARGET_DIR)/billionscale \
-	$(TARGET_DIR)/geneticalgorithm $(TARGET_DIR)/customalgorithm $(TARGET_DIR)/customtestbed
+	$(TARGET_DIR)/geneticalgorithm $(TARGET_DIR)/customalgorithm $(TARGET_DIR)/customtestbed \
+	$(TARGET_DIR)/combo
 
 # Create bin directory if it doesn't exist
 $(shell mkdir -p $(TARGET_DIR))
 
 .PHONY: all clean help bruteforce memoization dynamicprogramming \
-    branchandbound meetinthemiddle greedyheuristic \
-    randompermutation efficientalgo billionscale \
-    geneticalgorithm customalgorithm customtestbed
+	branchandbound meetinthemiddle greedyheuristic \
+	randompermutation efficientalgo billionscale \
+	geneticalgorithm customalgorithm customtestbed combo
 
 # Default: build all explicit targets
 all: $(TARGETS)
@@ -99,6 +101,12 @@ $(TARGET_DIR)/customtestbed: 12-customtestbed/customtestbed.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $<
 	@echo "Custom Testbed compiled successfully!"
 
+# 13-combo
+$(TARGET_DIR)/combo: 13-combo/combo.cpp
+	@echo "Compiling Combo algorithm..."
+	$(CXX) $(CXXFLAGS) -o $@ $<
+	@echo "Combo compiled successfully!"
+
 # Convenience single-target aliases
 bruteforce: $(TARGET_DIR)/bruteforce
 memoization: $(TARGET_DIR)/memoization
@@ -112,6 +120,7 @@ billionscale: $(TARGET_DIR)/billionscale
 geneticalgorithm: $(TARGET_DIR)/geneticalgorithm
 customalgorithm: $(TARGET_DIR)/customalgorithm
 customtestbed: $(TARGET_DIR)/customtestbed
+combo: $(TARGET_DIR)/combo
 
 clean:
 	@echo "Cleaning compiled binaries..."
@@ -122,11 +131,11 @@ clean:
 help:
 	@echo "Knapsack Algorithms Makefile"
 	@echo "Usage:"
-	@echo "  make all              - Compile all algorithms"
-	@echo "  make <name>           - Compile a single algorithm (e.g., make bruteforce)"
-	@echo "  make clean            - Remove all compiled binaries"
-	@echo "  make help             - Display this help message"
+	@echo "  make all       - Compile all algorithms"
+	@echo "  make <name>    - Compile a single algorithm (e.g., make bruteforce)"
+	@echo "  make clean     - Remove all compiled binaries"
+	@echo "  make help      - Display this help message"
 	@echo ""
 	@echo "Available algorithms: bruteforce, memoization, dynamicprogramming, branchandbound,"
 	@echo "                      meetinthemiddle, greedyheuristic, randompermutation, efficientalgo,"
-	@echo "                      billionscale, geneticalgorithm, customalgorithm, customtestbed"
+	@echo "                      billionscale, geneticalgorithm, customalgorithm, customtestbed, combo"
