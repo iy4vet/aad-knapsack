@@ -1,0 +1,5 @@
+Algorithm,Avg Time,Min Time,Max Time,Avg Accuracy (%),Avg Memory,Optimality Rate (%)
+Brute Force,518.273 ms,182.0 us,5.597 s,99.99,7.04 MB,94.0
+Genetic Algorithm v2,416.614 ms,180.0 us,4.358 s,99.98,7.04 MB,76.0
+Genetic Algorithm v3,823.992 ms,208.0 us,9.353 s,99.99,7.04 MB,83.0
+Genetic Algorithm v4,406.602 ms,169.0 us,4.226 s,99.99,7.04 MB,81.0

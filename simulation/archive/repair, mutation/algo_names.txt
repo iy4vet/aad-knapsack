@@ -1,0 +1,4 @@
+Brute Force:            lagrangian repair,  core mutation
+Genetic Algorithm v2:   greedy repair,      diversity mutation
+Genetic Algorithm v3:   lagrangian repair,  diversity mutation
+Genetic Algorithm v4:   greedy repair,      core mutation

@@ -1,0 +1,4 @@
+Algorithm,Avg Time,Min Time,Max Time,Avg Accuracy (%),Avg Memory,Optimality Rate (%)
+simulated annealing,830.269 ms,6.318 ms,9.081 s,99.99,1.84 MB,91.0
+tabu search,971.906 ms,6.271 ms,9.755 s,100.00,1.84 MB,96.0
+guided local search,2.047 s,2.008 ms,26.416 s,99.99,1.05 MB,82.0

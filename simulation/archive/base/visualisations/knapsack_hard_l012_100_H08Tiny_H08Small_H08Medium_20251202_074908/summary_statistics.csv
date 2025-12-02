@@ -1,0 +1,11 @@
+Algorithm,Avg Time,Min Time,Max Time,Avg Accuracy (%),Avg Memory,Optimality Rate (%)
+Brute Force,262.541 ms,147.0 us,785.904 ms,100.00,516.0 B,3.0
+Memoization,283.500 ms,129.0 us,1.835 s,100.00,203.25 MB,37.0
+Dynamic Programming,376.997 ms,123.0 us,2.828 s,100.00,588.45 MB,43.0
+Pisinger's Combo,43.311 ms,11.767 ms,344.217 ms,100.00,36.81 MB,100.0
+Random Permutation,350.780 ms,168.0 us,2.117 s,100.00,589.79 MB,43.0
+Branch and Bound,866.026 ms,5.0 us,9.595 s,100.00,1.18 GB,23.0
+Meet in the Middle,83.602 ms,543.0 us,336.910 ms,100.00,12.68 MB,5.0
+Greedy,7.148 ms,1.0 us,70.088 ms,99.51,4.49 MB,1.0
+Efficient,1.221 s,8.0 us,12.481 s,100.00,3.15 KB,23.0
+Billion Scale,1.592 s,35.0 us,21.390 s,94.14,1.36 GB,0.0

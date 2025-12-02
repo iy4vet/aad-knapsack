@@ -2,8 +2,8 @@
 /data/*.csv
 /data/gh_*/
 /data/knapsack_*/
-# ignore simulation data and archives
-/simulation/archive/
+# ignore current simulation data
+/simulation/archive/**/results/
 /simulation/logs/
 /simulation/results/
 /simulation/visualisations/

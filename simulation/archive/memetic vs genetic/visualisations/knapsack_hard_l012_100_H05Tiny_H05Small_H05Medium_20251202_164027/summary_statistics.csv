@@ -1,0 +1,4 @@
+Algorithm,Avg Time,Min Time,Max Time,Avg Accuracy (%),Avg Memory,Optimality Rate (%)
+Base Genetic,1.331 s,316.0 us,18.754 s,82.62,3.85 MB,0.0
+Modified Memetic,506.705 ms,11.0 us,5.585 s,99.99,1.54 MB,77.0
+Custom Genetic,761.332 ms,377.0 us,7.565 s,99.99,3.69 MB,36.0
