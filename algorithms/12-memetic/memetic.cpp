@@ -44,7 +44,7 @@ struct Hyperparameters {
 // Struct for parameters that adapt based on the duality gap from Lagrangian relaxation.
 struct GapBasedParams {
     size_t tabuIterations = 50;         // Number of iterations for the Tabu Search local search.
-    size_t tabuNeighborhoodSize = 20;   // Number of neighbors to sample in each Tabu Search iteration.
+    size_t tabuNeighbourhoodSize = 20;  // Number of neighbours to sample in each Tabu Search iteration.
     double localSearchProb = 0.3;       // Probability of applying local search to an individual.
 };
 
@@ -104,7 +104,7 @@ struct PreprocessingData {
         return { z_val, total_w };
     }
 
-    // Performs problem reduction using Lagrangian relaxation and subgradient optimization.
+    // Performs problem reduction using Lagrangian relaxation and subgradient optimisation.
     void performPreprocessing(const KnapsackInstance &instance, Hyperparameters &params, ReductionData &reduction) {
         size_t n = instance.n;
         // --- Phase 1: Lagrangian Relaxation ---
@@ -126,7 +126,7 @@ struct PreprocessingData {
             }
         }
         lagrangianInfo.lowerBound = current_v;
-        // B. Subgradient Optimization to find the best Lagrangian multiplier.
+        // B. Subgradient Optimisation to find the best Lagrangian multiplier.
         double u = 0.0;
         double step = 2.0;
         size_t max_iter = (n > 50000) ? 100 : 150; // Fewer iterations for very large instances.
@@ -412,8 +412,8 @@ public:
             size_t bestMovePos = coreSize;  // Sentinel for no move found.
             int64 bestMoveValue = std::numeric_limits<int64>::min();
             int64 bestMoveWeight = 0;
-            // Sample a neighborhood of potential moves (bit flips).
-            for (size_t sample = 0; sample < GAP_PARAMS.tabuNeighborhoodSize; ++sample) {
+            // Sample a neighbourhood of potential moves (bit flips).
+            for (size_t sample = 0; sample < GAP_PARAMS.tabuNeighbourhoodSize; ++sample) {
                 size_t coreIdx = (static_cast<uint64_t>(rng()) * coreSize) >> 32;
                 size_t originalIdx = REDUCTION_DATA.coreToOriginal[coreIdx];
                 // Evaluate the move (delta evaluation).
@@ -744,32 +744,32 @@ void configureSearchParameters() {
         // Very small gap: problem is nearly solved, minimal local search needed.
         GAP_PARAMS.localSearchProb = 0.05;
         GAP_PARAMS.tabuIterations = 20;
-        GAP_PARAMS.tabuNeighborhoodSize = 10;
+        GAP_PARAMS.tabuNeighbourhoodSize = 10;
     }
     else if (gapRatio < 0.01) {
         // Small gap: moderate search.
         GAP_PARAMS.localSearchProb = 0.15;
         GAP_PARAMS.tabuIterations = 30;
-        GAP_PARAMS.tabuNeighborhoodSize = 15;
+        GAP_PARAMS.tabuNeighbourhoodSize = 15;
     }
     else if (gapRatio < 0.05) {
         // Moderate gap: more intensive search.
         GAP_PARAMS.localSearchProb = 0.25;
         GAP_PARAMS.tabuIterations = 50;
-        GAP_PARAMS.tabuNeighborhoodSize = 20;
+        GAP_PARAMS.tabuNeighbourhoodSize = 20;
     }
     else {
         // Large gap: problem is likely hard, use most intensive search settings.
         GAP_PARAMS.localSearchProb = 0.35;
         GAP_PARAMS.tabuIterations = 70;
-        GAP_PARAMS.tabuNeighborhoodSize = 30;
+        GAP_PARAMS.tabuNeighbourhoodSize = 30;
     }
     // Scale down parameters for very large core problems to keep runtime manageable.
     if (coreSize > 50000) {
         // Large core: reduce local search intensity.
         GAP_PARAMS.localSearchProb *= 0.5;
         GAP_PARAMS.tabuIterations = std::min(GAP_PARAMS.tabuIterations, size_t(30));
-        GAP_PARAMS.tabuNeighborhoodSize = std::min(GAP_PARAMS.tabuNeighborhoodSize, size_t(15));
+        GAP_PARAMS.tabuNeighbourhoodSize = std::min(GAP_PARAMS.tabuNeighbourhoodSize, size_t(15));
     }
     else if (coreSize > 20000) {
         // Moderately large core: slightly reduce local search intensity.
