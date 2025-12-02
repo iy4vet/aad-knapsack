@@ -93,7 +93,8 @@ The Base GA starts with a **fully random population**. The Memetic Algorithm see
 
 * **$\sim 5\%$ RCBO Individuals**: Generated using "Reduced Cost Based Ordering"—a heuristic derived from the Lagrangian relaxation that greedily adds items by reduced cost.
 * **$\sim 5\%$ V/W Greedy Individuals**: Generated using the standard Value/Weight ratio heuristic.
-* **$\sim 90\%$ Random Individuals**: The rest are random to maintain diversity.
+* **$\sim 5\%$ Combination Sampling Individuals**: Generated using Probabilistic List Merge, which combines Greedy (V/W), Price (Value), and Lagrange (Reduced Cost) orderings with weighted probabilities (40%, 30%, 30% respectively) for diverse high-quality seeds.
+* **$\sim 85\%$ Random Individuals**: The rest are random to maintain diversity.
 
 All individuals are repaired with the aggressive greedy-add phase enabled for a strong initial population.
 

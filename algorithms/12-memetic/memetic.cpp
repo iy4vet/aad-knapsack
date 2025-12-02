@@ -69,7 +69,6 @@ struct SortItem {
 
 // Struct to hold data from the Lagrangian relaxation process.
 struct LagrangianData {
-    double multiplier = 0.0;                                        // The optimal Lagrangian multiplier (u*).
     int64 lowerBound = 0;                                           // The best feasible solution value found (LB).
     double upperBound = std::numeric_limits<double>::infinity();    // The Lagrangian upper bound (Z_u).
     double gapRatio = 1.0;                                          // The relative duality gap: (UB - LB) / UB.
@@ -78,11 +77,9 @@ struct LagrangianData {
 // Struct containing all data generated during the preprocessing phase.
 struct PreprocessingData {
     // Views for Greedy/Repair operators (Contain ONLY Core items)
-    std::vector<SortItem> sortedCoreItems;      // Core items sorted by value-to-weight ratio (ascending).
+    std::vector<SortItem> sortedCoreItems;      // Core items sorted by value-to-weight ratio (descending for greedy).
     std::vector<size_t> rcSortedCoreIndices;    // Core item indices sorted by reduced cost (descending).
-
-    // Cached reduced costs for core items only.
-    std::vector<double> coreReducedCosts;
+    std::vector<size_t> valueSortedCoreIndices; // Core item indices sorted by value (descending).
 
     // Lagrangian relaxation data.
     LagrangianData lagrangianInfo;
@@ -153,7 +150,6 @@ struct PreprocessingData {
         auto sub_result = lagrangianSubproblem(best_u, instance);
         double best_zub = sub_result.first + best_u * (double)instance.capacity;
         // Store final Lagrangian data.
-        lagrangianInfo.multiplier = best_u;
         lagrangianInfo.upperBound = best_zub;
         // Compute the duality gap ratio for adaptive search intensity.
         if (best_zub > 0.0 && best_zub < std::numeric_limits<double>::infinity()) {
@@ -173,7 +169,8 @@ struct PreprocessingData {
         reduction.fixedWeight = 0;
         reduction.fixedOnesIndices.clear();
         reduction.coreToOriginal.clear();
-        coreReducedCosts.clear();
+        // Cached reduced costs for core items only.
+        std::vector<double> coreReducedCosts;
         // Pre-allocate temporary reduced costs vector for classification.
         std::vector<double> tempReducedCosts(n);
         // Classify each item.
@@ -210,6 +207,7 @@ struct PreprocessingData {
         // Setup sorted views for core items.
         sortedCoreItems.resize(reduction.coreSize);
         rcSortedCoreIndices.resize(reduction.coreSize);
+        valueSortedCoreIndices.resize(reduction.coreSize);
         // Initialize sorting structures.
         for (size_t k = 0; k < reduction.coreSize; ++k) {
             size_t originalIdx = reduction.coreToOriginal[k];
@@ -221,8 +219,9 @@ struct PreprocessingData {
             else {
                 sortedCoreItems[k].ratio = (instance.values[originalIdx] > 0) ? std::numeric_limits<double>::infinity() : 0.0;
             }
-            // Setup index for reduced cost sorting.
+            // Setup indices for sorting.
             rcSortedCoreIndices[k] = k;
+            valueSortedCoreIndices[k] = k;
         }
         // Sort core items by V/W Ratio Ascending (for drop phase of repair - worst items first).
         std::sort(sortedCoreItems.begin(), sortedCoreItems.end(),
@@ -237,8 +236,13 @@ struct PreprocessingData {
             });
         // Sort core indices by Reduced Cost Descending (Best to Worst for add phase of repair).
         std::sort(rcSortedCoreIndices.begin(), rcSortedCoreIndices.end(),
-            [this](size_t a, size_t b) {
+            [&coreReducedCosts](size_t a, size_t b) {
                 return coreReducedCosts[a] > coreReducedCosts[b];
+            });
+        // Sort core indices by Value Descending (for combination sampling).
+        std::sort(valueSortedCoreIndices.begin(), valueSortedCoreIndices.end(),
+            [&instance, &reduction](size_t a, size_t b) {
+                return instance.values[reduction.coreToOriginal[a]] > instance.values[reduction.coreToOriginal[b]];
             });
         // Scale mutation probability based on the size of the core problem.
         // A smaller core means each item is more critical, so mutation can be higher.
@@ -520,36 +524,132 @@ Individual generateRCBOIndividual() {
     return ind;
 }
 
+// Generates an individual using Probabilistic List Merge (Combination Sampling).
+// Mixes Greedy (V/W), Price (V), and Lagrange (Reduced Cost) based on weights.
+Individual generateCombinationIndividual(double w_greedy, double w_price, double w_lagrange) {
+    Individual ind(REDUCTION_DATA.coreSize);
+    size_t coreSize = REDUCTION_DATA.coreSize;
+    // No core items to process.
+    if (coreSize == 0) {
+        return ind;
+    }
+    // Normalize weights (avoid divide-by-zero)
+    double sum = w_greedy + w_price + w_lagrange;
+    w_greedy /= sum;
+    w_price /= sum;
+    w_lagrange /= sum;
+    size_t idx_G = 0; // pointer into sorted v/w list (descending, so iterate from end)
+    size_t idx_P = 0; // pointer into sorted value list
+    size_t idx_L = 0; // pointer into sorted lagrange list
+    // Track processed items to avoid duplicates.
+    std::vector<bool> processed(coreSize, false);
+    std::uniform_real_distribution<double> dist(0.0, 1.0);
+    // Select items until all core items are processed.
+    size_t items_processed = 0;
+    while (items_processed < coreSize) {
+        double r = dist(rng);
+        size_t candidate_coreIdx = 0;
+        bool found = false;
+        // pick source list according to normalized weights
+        if (r < w_greedy) {
+            // V/W greedy - sortedCoreItems is ascending, so iterate from end
+            while (idx_G < coreSize) {
+                size_t coreId = PREPROC_DATA.sortedCoreItems[coreSize - 1 - idx_G].coreId;
+                idx_G++;
+                if (!processed[coreId]) {
+                    candidate_coreIdx = coreId;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                w_greedy = 0;
+                continue;
+            }
+        }
+        else if (r < w_greedy + w_price) {
+            // Price (value) sorted - valueSortedCoreIndices is descending
+            while (idx_P < coreSize) {
+                size_t coreId = PREPROC_DATA.valueSortedCoreIndices[idx_P];
+                idx_P++;
+                if (!processed[coreId]) {
+                    candidate_coreIdx = coreId;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                w_price = 0;
+                continue;
+            }
+        }
+        else {
+            // Lagrange (reduced cost) sorted - rcSortedCoreIndices is descending
+            while (idx_L < coreSize) {
+                size_t coreId = PREPROC_DATA.rcSortedCoreIndices[idx_L];
+                idx_L++;
+                if (!processed[coreId]) {
+                    candidate_coreIdx = coreId;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                w_lagrange = 0;
+                continue;
+            }
+        }
+        // If no candidate found in the selected list, skip to next iteration.
+        if (!found) {
+            continue;
+        }
+        processed[candidate_coreIdx] = true;
+        items_processed++;
+        // Greedy insert: only add if fits
+        size_t originalIdx = REDUCTION_DATA.coreToOriginal[candidate_coreIdx];
+        if (ind.totalWeight + INSTANCE.weights[originalIdx] <= INSTANCE.capacity) {
+            ind.bits[candidate_coreIdx] = true;
+            ind.totalWeight += INSTANCE.weights[originalIdx];
+            ind.totalValue += INSTANCE.values[originalIdx];
+        }
+    }
+    return ind;
+}
+
 // Generates the initial population with a mix of heuristic and random individuals.
+// Distribution: 5% RCBO, 5% V/W greedy, 5% combination, 85% pure random.
 std::vector<Individual> generateInitialPopulation() {
     std::vector<Individual> population;
     population.reserve(PARAMS.populationSize);
-
     // Seed ~5% of the population with RCBO individuals.
     size_t numRCBO = std::max(size_t(1), PARAMS.populationSize / 20);
     Individual rcbo = generateRCBOIndividual();
     for (size_t p = 0; p < numRCBO; ++p) {
         population.push_back(rcbo);
     }
-
     // Seed ~5% of the population with V/W greedy individuals.
     size_t numVWGreedy = std::max(size_t(1), PARAMS.populationSize / 20);
     Individual vwGreedy = generateVWGreedyIndividual();
     for (size_t p = 0; p < numVWGreedy; ++p) {
         population.push_back(vwGreedy);
     }
-
-    // Fill the rest of the population with random individuals to ensure diversity.
+    // Seed ~5% of the population with combination sampling individuals.
+    size_t numCombination = std::max(size_t(1), PARAMS.populationSize / 20);
+    for (size_t p = 0; p < numCombination; ++p) {
+        // Use varied weights for diversity in combination individuals
+        double w_greedy = 0.4, w_price = 0.3, w_lagrange = 0.3;
+        population.push_back(generateCombinationIndividual(w_greedy, w_price, w_lagrange));
+    }
+    // Fill the rest (~85%) with pure random individuals.
     while (population.size() < PARAMS.populationSize) {
         population.push_back(generateRandomIndividual());
     }
-
     // Repair all individuals in the initial population.
     // The first repair is aggressive (with greedy add) to ensure a strong start.
     for (auto &individual : population) {
         individual.repair(true);
     }
-
+    // Return the generated population.
     return population;
 }
 
