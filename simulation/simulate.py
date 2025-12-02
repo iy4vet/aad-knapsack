@@ -119,7 +119,7 @@ class KnapsackSimulator:
             },
             "efficient": {
                 "executable": self.algorithms_path / "bin" / "efficient",
-                "name": "Efficient",
+                "name": "Nauss Efficient",
                 "sort_key": lambda n, capacity, wmax, wmin: n,
                 "exact": False,
                 "millionscale": False,
@@ -1340,6 +1340,17 @@ def main():
     # ---- [categories]: List of categories to filter dataset (None = all) ----
     # ---- [timeout_seconds]: Single value or list matching categories (None = default adaptive timeouts) ----
     simulation_runs = []
+    # Random datasets
+    simulation_runs.extend(
+        [
+            [
+                "knapsack_random_l0123_20",
+                10,
+                ["RTiny", "RSmall", "RMedium", "RLarge"],
+                [6, 12, 45, 450],
+            ]
+        ]
+    )
     # Standard datasets
     # simulation_runs.extend(
     #     [
@@ -1348,17 +1359,17 @@ def main():
     #     ]
     # )
     # Hard datasets H01 to H16 (Pisinger Codes)
-    simulation_runs.extend(
-        [
-            [
-                "knapsack_hard_l012_100",
-                12,
-                [f"H{i}Tiny", f"H{i}Small", f"H{i}Medium"],
-                [4, 12, 30],
-            ]
-            for i in [f"{j:02d}" for j in range(1, 17) if j != 10]
-        ]
-    )
+    # simulation_runs.extend(
+    #     [
+    #         [
+    #             "knapsack_hard_l012_100",
+    #             12,
+    #             [f"H{i}Tiny", f"H{i}Small", f"H{i}Medium"],
+    #             [4, 12, 30],
+    #         ]
+    #         for i in [f"{j:02d}" for j in range(1, 17) if j != 10]
+    #     ]
+    # )
 
     # Get the base path (parent of simulation folder)
     base_path = Path(__file__).parent.parent
