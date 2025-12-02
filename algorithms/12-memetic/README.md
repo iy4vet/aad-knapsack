@@ -12,13 +12,14 @@ In the context of the Knapsack Problem, this algorithm represents the state-of-t
 
 This implementation is a significant departure from the standard Genetic Algorithm. It incorporates advanced mathematical optimisation techniques to handle large-scale instances (millions of items) efficiently.
 
-#### 1. Problem Reduction via Lagrangian Relaxation
+#### 1. Problem Reduction via Lagrangian Relaxation (Break Item Method)
 
 The most critical optimisation happens *before* the genetic algorithm even starts. The Base GA operates on all $N$ items, which is inefficient for large $N$. The Memetic algorithm uses **Lagrangian Relaxation** to identify the "easy" decisions:
 
-* **Lagrangian Multipliers**: We calculate optimal multipliers to estimate the "reduced cost" of each item.
-* **Variable Fixing**: Items with very high reduced costs are fixed to $0$ (excluded), and items with very low reduced costs are fixed to $1$ (included).
-* **The Core Problem**: The GA only evolves the remaining subset of items (the "Core") where the decision is difficult.
+* **Break Item Method**: Instead of iterative subgradient optimisation, we determine the optimal Lagrangian multiplier $\lambda^*$ directly in $O(N \log N)$ time. Items are sorted by value-to-weight ratio, and the **Break Item**—the first item that doesn't fit when greedily filling the knapsack—defines $\lambda^* = v_b / w_b$. This is mathematically equivalent to finding the optimal dual variable in the Linear Relaxation of the Knapsack Problem.
+* **Reduced Cost Calculation**: Using $\lambda^*$, each item's reduced cost is computed as $rc_i = v_i - \lambda^* \cdot w_i$. Items with positive reduced costs are "good" (tend towards inclusion), while negative reduced costs indicate "bad" items.
+* **Variable Fixing**: Items are fixed based on their reduced costs. If excluding an item (fixing to $0$) or including an item (fixing to $1$) would result in a bound worse than the current lower bound, that item's decision is fixed.
+* **The Core Problem**: The GA only evolves the remaining subset of items (the "Core") where the decision is difficult—items whose reduced costs are close to zero.
 
 For a problem with 1,000,000 items, the Core might only contain 100–500 items. This allows the GA to converge extremely fast.
 
@@ -104,7 +105,7 @@ The complexity is split into two phases: Preprocessing and Evolution.
 
 | Function | Time Complexity | Notes |
 |----------|-----------------|-------|
-| `performPreprocessing()` | $O(N \log N + K \cdot N)$ | Sorting items ($N \log N$) + $K$ subgradient iterations ($O(N)$ each). |
+| `performPreprocessing()` | $O(N \log N)$ | Sorting items by V/W ratio ($N \log N$) + single pass to find Break Item and compute reduced costs ($O(N)$). |
 
 #### Core Evolution (The Genetic Part)
 
