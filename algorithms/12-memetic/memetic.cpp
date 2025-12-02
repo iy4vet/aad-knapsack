@@ -104,80 +104,54 @@ struct PreprocessingData {
         return { z_val, total_w };
     }
 
-    // Performs problem reduction using Lagrangian relaxation and subgradient optimisation.
+    // Performs problem reduction using Lagrangian relaxation and Break Item method.
     void performPreprocessing(const KnapsackInstance &instance, Hyperparameters &params, ReductionData &reduction) {
         size_t n = instance.n;
         // --- Phase 1: Lagrangian Relaxation ---
-        // A. Establish Initial Lower Bound (Simple Greedy)
-        // A good lower bound is crucial for effective reduction and gap calculation.
+        // A. Establish Initial Lower Bound (Simple Greedy) & Sort Ratios
+        // We sort all items by value-to-weight ratio. This is essential for both the
+        // greedy heuristic and finding the optimal Lagrangian multiplier (Break Item).
         std::vector<std::pair<double, size_t>> temp_ratios(n);
         for (size_t i = 0; i < n; ++i) {
             double r = (instance.weights[i] > 0) ? (double)instance.values[i] / instance.weights[i] : 0.0;
             temp_ratios[i] = { r, i };
         }
+        // Sort descending: highest V/W ratio first.
         std::sort(temp_ratios.rbegin(), temp_ratios.rend());
-        // Compute greedy solution value.
+        // Compute greedy solution value (Lower Bound).
         int64 current_w = 0;
         int64 current_v = 0;
+        // B. Find Optimal Lagrangian Multiplier (Break Item Method)
+        // Instead of iterative subgradient optimization, we determine the multiplier 'u'
+        // directly from the "Break Item". In the Linear Relaxation of the Knapsack Problem,
+        // the optimal dual variable lambda (u) corresponds to the efficiency of the first item
+        // that does not fit into the knapsack.
+        double best_u = 0.0;
+        bool breakItemFound = false;
+        // Iterate through items in order of decreasing ratio.
         for (const auto &p : temp_ratios) {
+            // Accumulate weight for Greedy Lower Bound.
             if (current_w + instance.weights[p.second] <= instance.capacity) {
                 current_w += instance.weights[p.second];
                 current_v += instance.values[p.second];
             }
-        }
-        lagrangianInfo.lowerBound = current_v;
-        // B. Subgradient Optimisation to find the best Lagrangian multiplier.
-        double u = 0.0;
-        double step = 2.0;
-        size_t max_iter = (n > 50000) ? 100 : 150; // Fewer iterations for very large instances.
-        double best_zub = std::numeric_limits<double>::infinity();
-        double best_u = 0.0;
-        size_t no_improvement_count = 0;
-        // Temporary storage for reduced costs (computed at best_u).
-        std::vector<double> tempReducedCosts(n);
-        // Subgradient loop.
-        for (size_t k = 0; k < max_iter; ++k) {
-            auto sub_result = lagrangianSubproblem(u, instance);
-            double z_u = sub_result.first + u * (double)instance.capacity;
-            // If we found a better upper bound, update it.
-            if (z_u < best_zub - 1e-6) {
-                best_zub = z_u;
-                best_u = u;
-                no_improvement_count = 0;
-                // Update reduced costs at the best multiplier found so far.
-                for (size_t i = 0; i < n; ++i) {
-                    tempReducedCosts[i] = (double)instance.values[i] - best_u * (double)instance.weights[i];
-                }
-            }
             else {
-                no_improvement_count++;
-                // If the upper bound hasn't improved for a while, reduce the step size.
-                if (no_improvement_count >= 15) {
-                    step *= 0.5;
-                    no_improvement_count = 0;
+                // If this is the first item that doesn't fit, it is the Break Item.
+                // Its ratio is the optimal Lagrangian multiplier.
+                if (!breakItemFound) {
+                    best_u = p.first;
+                    breakItemFound = true;
+                    // We don't break the loop immediately because we want to finish
+                    // calculating the greedy lower bound (though simplistic, it helps).
                 }
             }
-            // Check for convergence (gap is very small).
-            if (best_zub > 0.0 && (best_zub - (double)lagrangianInfo.lowerBound) / best_zub < 1e-8) {
-                break;
-            }
-            // Converged if subgradient is zero.
-            int64 g = sub_result.second - instance.capacity;
-            if (g == 0 && k > 10) {
-                break;
-            }
-            // Update the multiplier using the subgradient method.
-            if (g != 0) {
-                double numerator = z_u - (double)lagrangianInfo.lowerBound;
-                // Avoid division by zero or tiny steps.
-                if (numerator < 1e-6) {
-                    numerator = 1e-6;
-                }
-                // Correct: include subgradient direction (sign-aware update).
-                u = std::max(0.0, u + step * numerator / (double)g);
-            }
-            step *= 0.95; // Gradually decrease step size.
         }
+        // Store the greedy lower bound.
+        lagrangianInfo.lowerBound = current_v;
+        // If all items fit, best_u remains 0.0, which is correct (take everything).
+        // Calculate the Lagrangian Upper Bound using this optimal u.
+        auto sub_result = lagrangianSubproblem(best_u, instance);
+        double best_zub = sub_result.first + best_u * (double)instance.capacity;
         // Store final Lagrangian data.
         lagrangianInfo.multiplier = best_u;
         lagrangianInfo.upperBound = best_zub;
@@ -193,16 +167,22 @@ struct PreprocessingData {
             lagrangianInfo.gapRatio = 1.0;
         }
         // C. Classification & Problem Reduction
-        // Fix variables based on their reduced costs.
+        // Fix variables based on their reduced costs using the optimal multiplier.
+        // Reduced Cost: rc_i = v_i - u * w_i
         reduction.fixedValue = 0;
         reduction.fixedWeight = 0;
         reduction.fixedOnesIndices.clear();
         reduction.coreToOriginal.clear();
         coreReducedCosts.clear();
+        // Pre-allocate temporary reduced costs vector for classification.
+        std::vector<double> tempReducedCosts(n);
         // Classify each item.
         for (size_t i = 0; i < n; ++i) {
-            double rc = tempReducedCosts[i];
+            // Compute reduced cost at optimal u.
+            double rc = (double)instance.values[i] - best_u * (double)instance.weights[i];
+            tempReducedCosts[i] = rc;
             // Condition to fix an item to 1.
+            // If the UB with this item forced to 0 (UB - |rc|) is worse than current LB.
             if (rc > 0 && (best_zub - rc < (double)lagrangianInfo.lowerBound - 1e-9)) {
                 // Fixed to 1
                 reduction.fixedOnesIndices.push_back(i);
@@ -210,6 +190,7 @@ struct PreprocessingData {
                 reduction.fixedWeight += instance.weights[i];
             }
             // Condition to fix an item to 0.
+            // If the UB with this item forced to 1 (UB - |rc|) is worse than current LB.
             else if (rc < 0 && (best_zub + rc < (double)lagrangianInfo.lowerBound - 1e-9)) {
                 // Fixed to 0 (do nothing, just exclude from core).
             }
