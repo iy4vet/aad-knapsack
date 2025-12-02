@@ -22,36 +22,79 @@ The most critical optimisation happens *before* the genetic algorithm even start
 
 For a problem with 1,000,000 items, the Core might only contain 100–500 items. This allows the GA to converge extremely fast.
 
-#### 2. Memetic Local Search (Tabu Search)
+#### 2. Core-Based Individual Representation
+
+The Base GA uses a bit string of length $N$ (one bit per item). The Memetic Algorithm uses a **Core-Based Representation**:
+
+* **Reduced Bit String**: The `Individual` class only stores bits for the Core items, not all $N$ items.
+* **Pre-loaded Fixed Values**: The constructor initialises `totalValue` and `totalWeight` with the contributions from items fixed to $1$, so the GA only evolves the "uncertain" part.
+* **Index Mapping**: A `coreToOriginal` mapping is used to translate between core indices and original item indices.
+
+#### 3. Fitness-Biased Crossover
+
+The Base GA uses **Single-Point Crossover** (split at midpoint, swap halves). The Memetic Algorithm uses a **Fitness-Biased Uniform Crossover**:
+
+* **Agreement Rule**: If both parents agree on a bit (both $0$ or both $1$), both children inherit that bit.
+* **Disagreement Rule**: If parents disagree, the **fitter parent's bit is favoured** and given to Child 1, while the weaker parent's bit goes to Child 2.
+* **Diversity Injection**: A random coin flip can swap the bits between children to maintain diversity.
+* **Incremental Metrics**: Children's `totalValue` and `totalWeight` are computed incrementally during crossover, starting from `fixedValue` and `fixedWeight`.
+
+This heuristic crossover ensures that good genetic material from the fitter parent is more likely to propagate, while still maintaining population diversity.
+
+#### 4. Adaptive Core Mutation
+
+The Base GA uses a **Per-Bit Mutation** where every bit has an independent probability of flipping (using geometric distribution for efficiency). The Memetic Algorithm uses an **Adaptive Core Mutation**:
+
+* **Multi-Attempt Strategy**: Instead of checking every bit, the algorithm makes $3$ attempts to mutate, each with probability `coreMutationProb`.
+* **Fast Random Index**: A random core index is selected directly using bit manipulation (`(rng() * coreSize) >> 32`), rather than iterating through all bits.
+* **Incremental Updates**: When a bit is flipped, `totalValue` and `totalWeight` are updated immediately using the `coreToOriginal` mapping.
+
+This is much more efficient for large problems since the mutation time is $O(1)$ regardless of core size.
+
+#### 5. Lagrangian-Guided Repair
+
+The Base GA repairs overweight individuals by **randomly removing items** until feasible. The Memetic Algorithm uses a **Two-Phase Greedy Repair** based on reduced costs:
+
+* **Phase 1 (Removal)**: If overweight, items are removed in order of *worst* reduced cost (iterating backwards through `rcSortedCoreIndices`).
+* **Phase 2 (Addition)**: Periodically (every 5 generations), items with the *best* reduced costs are greedily added back if space allows.
+
+This ensures that even the repair process pushes the solution towards optimality rather than randomly degrading it.
+
+#### 6. Memetic Local Search (Tabu Search)
 
 In the Base GA, individuals only change via random mutation. In this Memetic Algorithm, individuals actively improve themselves using **Tabu Search**:
 
-* After mutation, an individual undergoes a local search phase.
-* It explores its "neighbourhood" by flipping bits to see if a better solution exists nearby.
-* **Tabu List**: To prevent cycling (flipping the same bit back and forth), recently flipped bits are marked "tabu" (forbidden) for a few iterations.
+* After mutation, an individual undergoes a local search phase with probability `localSearchProb`.
+* It explores its "neighbourhood" by sampling random bit flips and evaluating them.
+* **Tabu List**: Recently flipped bits are marked "tabu" (forbidden) for a tenure period to prevent cycling.
+* **Aspiration Criterion**: A tabu move is allowed if it leads to a new **best-ever** solution.
+* **Backtracking**: The algorithm tracks all moves and can backtrack to the best solution found during the search.
 
-#### 3. Lagrangian-Guided Repair
+#### 7. Elitism
 
-The Base GA repairs overweight individuals by randomly removing items. The Memetic Algorithm uses a much smarter **Greedy Repair** based on reduced costs:
+The Base GA has **no elitism**—the best individual can be lost between generations. The Memetic Algorithm implements **Explicit Elitism**:
 
-* **Removal**: If overweight, it removes items with the *worst* reduced costs (least "bang for buck" in the Lagrangian sense).
-* **Addition**: If there is space, it adds items with the *best* reduced costs.
+* The best individual from the current generation is **always copied** to position $0$ of the next generation.
+* This guarantees monotonic improvement: the best solution found is never lost.
 
-This ensures that even the repair process pushes the solution towards optimality.
-
-#### 4. Gap-Based Adaptive Scaling
+#### 8. Gap-Based Adaptive Scaling
 
 The algorithm measures the **Duality Gap** (the difference between the best possible mathematical upper bound and the current best solution).
 
-* **Small Gap**: The problem is easy. The algorithm reduces search intensity to save time.
-* **Large Gap**: The problem is hard. The algorithm automatically increases `tabuIterations` and `localSearchProb` to dig deeper.
+* **Small Gap** ($< 0.1\%$): The problem is easy. Local search probability and iterations are reduced to save time.
+* **Moderate Gap** ($< 5\%$): Standard search intensity is applied.
+* **Large Gap** ($> 5\%$): The algorithm automatically increases `tabuIterations` and `localSearchProb` to dig deeper.
+* **Core Size Scaling**: For very large cores ($> 50,000$ items), parameters are scaled down to keep runtime manageable.
 
-#### 5. Heuristic Population Seeding
+#### 9. Heuristic Population Seeding
 
-The initial population is not just random. It includes:
+The Base GA starts with a **fully random population**. The Memetic Algorithm seeds the initial population intelligently:
 
-* **RCBO Individuals**: Generated using "Reduced Cost Based Ordering" (a heuristic derived from the Lagrangian relaxation).
-* **VW Greedy Individuals**: Generated using the standard Value/Weight ratio.
+* **$\sim 5\%$ RCBO Individuals**: Generated using "Reduced Cost Based Ordering"—a heuristic derived from the Lagrangian relaxation that greedily adds items by reduced cost.
+* **$\sim 5\%$ V/W Greedy Individuals**: Generated using the standard Value/Weight ratio heuristic.
+* **$\sim 90\%$ Random Individuals**: The rest are random to maintain diversity.
+
+All individuals are repaired with the aggressive greedy-add phase enabled for a strong initial population.
 
 ### Complexity
 
@@ -70,6 +113,8 @@ Because the GA only runs on the **Core** (size $C$), and $C \ll N$, the evolutio
 | Function | Time Complexity | Notes |
 |----------|-----------------|-------|
 | `Individual::repair()` | $O(C)$ | Linear scan of the Core items only. |
+| `Individual::mutate()` | $O(1)$ | Fixed number of mutation attempts (3), regardless of Core size. |
+| `crossover()` | $O(C)$ | Linear scan of Core items with incremental metric updates. |
 | `Individual::localSearch()` | $O(I \cdot S)$ | $I$ iterations $\times$ $S$ neighbours. Constant relative to $N$. |
 | `solveKnapsackGenetic()` | $O(G \cdot P \cdot (C + I \cdot S))$ | Generations $\times$ Population $\times$ (Crossover + Local Search). |
 
@@ -80,9 +125,14 @@ Because the GA only runs on the **Core** (size $C$), and $C \ll N$, the evolutio
 | Feature | Base Genetic Algorithm | Memetic Algorithm |
 | :--- | :--- | :--- |
 | **Problem Scope** | Evolves all $N$ items | Evolves only "Core" items ($C \ll N$) |
-| **Optimisation** | Purely biological evolution | Mathematical reduction + Evolution |
+| **Individual Representation** | Bit string of length $N$ | Bit string of length $C$ with pre-loaded fixed values |
+| **Crossover** | Single-point (midpoint swap) | Fitness-biased uniform crossover |
+| **Mutation** | Per-bit with geometric skip ($O(N)$) | Multi-attempt random flip ($O(1)$) |
+| **Repair Strategy** | Random Removal | Two-phase Lagrangian Reduced Cost Greedy |
 | **Local Improvement** | None (Random Mutation only) | **Tabu Search** (Active improvement) |
-| **Repair Strategy** | Random Removal | **Lagrangian Reduced Cost** Greedy |
+| **Elitism** | None | Best individual always preserved |
+| **Population Seeding** | Fully random | Heuristic (RCBO + V/W Greedy) + Random |
+| **Adaptive Parameters** | Fixed | Gap-based scaling of search intensity |
 | **Scalability** | Slow for $N > 10,000$ | Efficient for $N > 1,000,000$ |
 
 ## References

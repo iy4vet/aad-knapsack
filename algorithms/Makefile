@@ -17,15 +17,14 @@ TARGETS = $(TARGET_DIR)/bruteforce \
           $(TARGET_DIR)/efficient \
           $(TARGET_DIR)/billionscale \
           $(TARGET_DIR)/genetic \
-          $(TARGET_DIR)/memetic \
-          $(TARGET_DIR)/custom
+          $(TARGET_DIR)/memetic
 
 # Create bin directory if it doesn't exist
 $(shell mkdir -p $(TARGET_DIR))
 
 .PHONY: all clean help bruteforce memoization dynamicprogramming combo \
 	randompermutation branchandbound meetinthemiddle greedy \
-	efficient billionscale genetic memetic custom
+	efficient billionscale genetic memetic
 
 # Default: build all explicit targets
 all: $(TARGETS)
@@ -102,12 +101,6 @@ $(TARGET_DIR)/memetic: 12-memetic/memetic.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $<
 	@echo "Memetic compiled successfully!"
 
-# 13-custom
-$(TARGET_DIR)/custom: 13-custom/custom.cpp
-	@echo "Compiling Custom algorithm..."
-	$(CXX) $(CXXFLAGS) -o $@ $<
-	@echo "Custom compiled successfully!"
-
 # Convenience single-target aliases
 bruteforce: $(TARGET_DIR)/bruteforce
 memoization: $(TARGET_DIR)/memoization
@@ -121,7 +114,6 @@ efficient: $(TARGET_DIR)/efficient
 billionscale: $(TARGET_DIR)/billionscale
 genetic: $(TARGET_DIR)/genetic
 memetic: $(TARGET_DIR)/memetic
-custom: $(TARGET_DIR)/custom
 
 clean:
 	@echo "Cleaning compiled binaries..."
@@ -139,4 +131,4 @@ help:
 	@echo ""
 	@echo "Available algorithms: bruteforce, memoization, dynamicprogramming, combo,"
 	@echo "                      randompermutation, branchandbound, meetinthemiddle, greedy,"
-	@echo "                      efficient, billionscale, genetic, memetic, custom"
+	@echo "                      efficient, billionscale, genetic, memetic"
