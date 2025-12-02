@@ -61,96 +61,96 @@ class KnapsackSimulator:
         self.mem_limit = None
         # Algorithm configurations: Add an entry for each executable placed in algorithms/bin
         self.algorithms = {
-            "bruteforce": {
-                "executable": self.algorithms_path / "bin" / "bruteforce",
-                "name": "Brute Force",
-                "sort_key": lambda n, capacity, wmax, wmin: n,
-                "exact": True,
-                "millionscale": False,
-            },
-            "memoization": {
-                "executable": self.algorithms_path / "bin" / "memoization",
-                "name": "Memoization",
-                "sort_key": lambda n, capacity, wmax, wmin: n * capacity,
-                "exact": True,
-                "millionscale": False,
-            },
-            "dynamicprogramming": {
-                "executable": self.algorithms_path / "bin" / "dynamicprogramming",
-                "name": "Dynamic Programming",
-                "sort_key": lambda n, capacity, wmax, wmin: n * capacity,
-                "exact": True,
-                "millionscale": False,
-            },
-            "branchandbound": {
-                "executable": self.algorithms_path / "bin" / "branchandbound",
-                "name": "Branch and Bound",
-                "sort_key": lambda n, capacity, wmax, wmin: n,
-                "exact": False,
-                "millionscale": False,
-            },
-            "meetinthemiddle": {
-                "executable": self.algorithms_path / "bin" / "meetinthemiddle",
-                "name": "Meet in the Middle",
-                "sort_key": lambda n, capacity, wmax, wmin: n,
-                "exact": False,
-                "millionscale": False,
-            },
-            "greedyheuristic": {
-                "executable": self.algorithms_path / "bin" / "greedyheuristic",
-                "name": "Greedy Heuristic",
-                "sort_key": lambda n, capacity, wmax, wmin: n,
-                "exact": False,
-                "millionscale": True,
-            },
-            "randompermutation": {
-                "executable": self.algorithms_path / "bin" / "randompermutation",
-                "name": "Random Permutation",
-                "sort_key": lambda n, capacity, wmax, wmin: (n**1.5) * wmax,
-                "exact": False,
-                "millionscale": False,
-            },
-            "efficientalgo": {
-                "executable": self.algorithms_path / "bin" / "efficientalgo",
-                "name": "Efficient Algorithm",
-                "sort_key": lambda n, capacity, wmax, wmin: n,
-                "exact": False,
-                "millionscale": False,
-            },
-            "billionscale": {
-                "executable": self.algorithms_path / "bin" / "billionscale",
-                "name": "Billion Scale",
-                "sort_key": lambda n, capacity, wmax, wmin: n,
-                "exact": False,
-                "millionscale": True,
-            },
-            "geneticalgorithm": {
-                "executable": self.algorithms_path / "bin" / "geneticalgorithm",
-                "name": "Genetic Algorithm",
-                "sort_key": lambda n, capacity, wmax, wmin: n,
-                "exact": False,
-                "millionscale": True,
-            },
-            "customalgorithm": {
-                "executable": self.algorithms_path / "bin" / "customalgorithm",
-                "name": "Custom Algorithm",
-                "sort_key": lambda n, capacity, wmax, wmin: n,
-                "exact": False,
-                "millionscale": True,
-            },
-            "customtestbed": {
-                "executable": self.algorithms_path / "bin" / "customtestbed",
-                "name": "Custom Testbed",
+            # "bruteforce": {
+            #     "executable": self.algorithms_path / "bin" / "bruteforce",
+            #     "name": "Brute Force",
+            #     "sort_key": lambda n, capacity, wmax, wmin: n,
+            #     "exact": True,
+            #     "millionscale": False,
+            # },
+            # "memoization": {
+            #     "executable": self.algorithms_path / "bin" / "memoization",
+            #     "name": "Memoization",
+            #     "sort_key": lambda n, capacity, wmax, wmin: n * capacity,
+            #     "exact": True,
+            #     "millionscale": False,
+            # },
+            # "dynamicprogramming": {
+            #     "executable": self.algorithms_path / "bin" / "dynamicprogramming",
+            #     "name": "Dynamic Programming",
+            #     "sort_key": lambda n, capacity, wmax, wmin: n * capacity,
+            #     "exact": True,
+            #     "millionscale": False,
+            # },
+            # "combo": {
+            #     "executable": self.algorithms_path / "bin" / "combo",
+            #     "name": "Pisinger's Combo",
+            #     "sort_key": lambda n, capacity, wmax, wmin: n * capacity,
+            #     "exact": True,
+            #     "millionscale": False,
+            # },
+            # "randompermutation": {
+            #     "executable": self.algorithms_path / "bin" / "randompermutation",
+            #     "name": "Random Permutation",
+            #     "sort_key": lambda n, capacity, wmax, wmin: (n**1.5) * wmax,
+            #     "exact": False,
+            #     "millionscale": False,
+            # },
+            # "branchandbound": {
+            #     "executable": self.algorithms_path / "bin" / "branchandbound",
+            #     "name": "Branch and Bound",
+            #     "sort_key": lambda n, capacity, wmax, wmin: n,
+            #     "exact": False,
+            #     "millionscale": False,
+            # },
+            # "meetinthemiddle": {
+            #     "executable": self.algorithms_path / "bin" / "meetinthemiddle",
+            #     "name": "Meet in the Middle",
+            #     "sort_key": lambda n, capacity, wmax, wmin: n,
+            #     "exact": False,
+            #     "millionscale": False,
+            # },
+            # "greedy": {
+            #     "executable": self.algorithms_path / "bin" / "greedy",
+            #     "name": "Greedy",
+            #     "sort_key": lambda n, capacity, wmax, wmin: n,
+            #     "exact": False,
+            #     "millionscale": True,
+            # },
+            # "efficient": {
+            #     "executable": self.algorithms_path / "bin" / "efficient",
+            #     "name": "Efficient",
+            #     "sort_key": lambda n, capacity, wmax, wmin: n,
+            #     "exact": False,
+            #     "millionscale": False,
+            # },
+            # "billionscale": {
+            #     "executable": self.algorithms_path / "bin" / "billionscale",
+            #     "name": "Billion Scale",
+            #     "sort_key": lambda n, capacity, wmax, wmin: n,
+            #     "exact": False,
+            #     "millionscale": True,
+            # },
+            "genetic": {
+                "executable": self.algorithms_path / "bin" / "genetic",
+                "name": "Base Genetic",
                 "sort_key": lambda n, capacity, wmax, wmin: n,
                 "exact": False,
                 "millionscale": True,
             },
-            "combo": {
-                "executable": self.algorithms_path / "bin" / "combo",
-                "name": "Pisinger's Combo",
-                "sort_key": lambda n, capacity, wmax, wmin: n * capacity,
-                "exact": True,
-                "millionscale": False,
+            "memetic": {
+                "executable": self.algorithms_path / "bin" / "memetic",
+                "name": "Modified Memetic",
+                "sort_key": lambda n, capacity, wmax, wmin: n,
+                "exact": False,
+                "millionscale": True,
+            },
+            "custom": {
+                "executable": self.algorithms_path / "bin" / "custom",
+                "name": "Custom Genetic",
+                "sort_key": lambda n, capacity, wmax, wmin: n,
+                "exact": False,
+                "millionscale": True,
             },
         }
 
@@ -1348,11 +1348,12 @@ def main():
     # ---- [timeout_seconds]: Single value or list matching categories (None = default adaptive timeouts) ----
     simulation_runs = []
     # Standard datasets
-    simulation_runs.extend(
-        [
-            ["knapsack_standard1", 12, ["S1Known"], 8],
-        ]
-    )
+    # simulation_runs.extend(
+    #     [
+    #         ["knapsack_standard1", 12, ["S1known"], 8],
+    #         ["knapsack_standard1", 8, ["S1unknown"], 24],
+    #     ]
+    # )
     # Hard datasets H01 to H16 (Pisinger Codes)
     simulation_runs.extend(
         [
@@ -1360,7 +1361,7 @@ def main():
                 "knapsack_hard_l012_100",
                 12,
                 [f"H{i}Tiny", f"H{i}Small", f"H{i}Medium"],
-                [4, 12, 30],
+                [8, 24, 60],
             ]
             for i in [f"{j:02d}" for j in range(1, 17) if j != 10]
         ]

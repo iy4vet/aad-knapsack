@@ -2,7 +2,8 @@
 
 Done as a part the course project of CS1.301, Algorithm Analysis and Design.
 
-Team members:  
+Team members:
+
 1. Ishan Bansal
 2. Siddharth Choudhary
 3. Akshat Gupta

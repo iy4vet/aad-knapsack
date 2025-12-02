@@ -19,13 +19,13 @@
 │ files per test  │        │ ✓ Memoization    │        │ - Collect Data   │
 │                 │        │ ✓ Dynamic Prog   │        │ - Analyse        │
 │ Categories:     │        │ ✓ Branch & Bound │        │ - Visualise      │
-│ - ETiny,ESmall  │        │ ✓ Meet in Middle │        │                  │
-│ - TTiny,TSmall  │        │ ✓ Greedy         │        │ simulate.py      │
-│ - RTiny,RSmall  │        │ ✓ Random Perm    │        │                  │
-│ - H1known,etc   │        │ ✓ Efficient      │        └──────────────────┘
-│                 │        │ ✓ Billion Scale  │                │
-└─────────────────┘        │ ✓ Genetic Algo   │                │
-                           │ ✓ Custom Algo    │                ▼
+│ - ETiny,ESmall  │        │ ✓ Combo          │        │                  │
+│ - TTiny,TSmall  │        │ ✓ Random Perm    │        │ simulate.py      │
+│ - RTiny,RSmall  │        │ ✓ Branch & Bound │        │                  │
+│ - S1known,etc   │        │ ✓ Meet in Middle │        └──────────────────┘
+│                 │        │ ✓ Greedy         │                │
+└─────────────────┘        │ ✓ Efficient      │                │
+                           │ ✓ Billion Scale  │                ▼
                            │                  │        ┌──────────────────┐
                            │ bin/bruteforce   │        │  OUTPUT LAYER    │
                            └──────────────────┘        └──────────────────┘
@@ -67,24 +67,19 @@ data/
 │   ├── RTiny/                  # Category: Random-Tiny (R prefix)
 │   ├── RSmall/
 │   └── ...
-├── knapsack_hard1/             # Dataset: Hard instances (set 1)
-│   ├── H1known/                # Category: Known optima
-│   └── H1unknown/              # Category: Unknown optima
-└── knapsack_hard2/             # Dataset: Hard instances (set 2)
-    ├── H2pisingerlarge/
-    ├── H2pisingerlowdim/
-    └── H2xiang/
+└── knapsack_standard1/             # Dataset: Standard instances (set 1)
+    ├── S1known/                # Category: Known optima
+    └── S1unknown/              # Category: Unknown optima
 ```
 
 ### Category Naming Convention
 
-| Prefix | Mode    | Categories                                |
-|--------|---------|-------------------------------------------|
-| E      | Easy    | ETiny, ESmall, EMedium, ELarge, EMassive  |
-| T      | Trap    | TTiny, TSmall, TMedium, TLarge, TMassive  |
-| R      | Random  | RTiny, RSmall, RMedium, RLarge, RMassive  |
-| H1     | Hard1   | H1known, H1unknown                        |
-| H2     | Hard2   | H2pisingerlarge, H2pisingerlowdim, H2xiang|
+| Prefix | Mode      | Categories                                |
+|--------|-----------|-------------------------------------------|
+| E      | Easy      | ETiny, ESmall, EMedium, ELarge, EMassive  |
+| T      | Trap      | TTiny, TSmall, TMedium, TLarge, TMassive  |
+| R      | Random    | RTiny, RSmall, RMedium, RLarge, RMassive  |
+| S1     | Standard1 | S1known, S1unknown                        |
 
 ### Test File Format
 
