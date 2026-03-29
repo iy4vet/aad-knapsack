@@ -1,4 +1,4 @@
-# AAD - Project: A Memetic Algorithm for 1D 0/1 Knapsack
+# AAD - Course Project: A Memetic Algorithm for 1D 0/1 Knapsack
 
 Coursework for the CS1.301 - Algorithm Analysis and Design course at IIIT Hyderabad (Monsoon '25).
 
