@@ -1,11 +1,11 @@
-# A project on Knapsack
+# AAD - Project: A Memetic Algorithm for 1D 0/1 Knapsack
 
-Done as a part the course project of CS1.301, Algorithm Analysis and Design.
+Coursework for the CS1.301 - Algorithm Analysis and Design course at IIIT Hyderabad (Monsoon '25).
 
-Team members:
+**Team AADHD**:
 
-1. Ishan Bansal
-2. Siddharth Choudhary
-3. Akshat Gupta
-4. Samarth Rao
-5. Shuban Biswas
+1. [Ishan Bansal](https://github.com/iy4vet)
+2. [Siddharth Choudhary](https://github.com/Dra9on-7)
+3. [Akshat Gupta](https://github.com/gakshat365)
+4. [Samarth Rao](https://github.com/rao-samarth)
+5. [Shuban Biswas](https://github.com/orbi8r)
